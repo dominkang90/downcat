@@ -48,32 +48,54 @@ function cookieArgs(cookies, cookieFile) {
   return [];
 }
 
-// yt-dlp 실행 인자 만들기. thumbnail=true면 영상 썸네일도 저장.
-function ytdlpArgs(url, outDir, cookies, cookieFile, thumbnail) {
+// yt-dlp 실행 인자 만들기. o.thumbnail=영상썸네일, o.ytHeight=최대 세로해상도(1080 등).
+function ytdlpArgs(url, outDir, o) {
   const ff = findFfmpeg();
   const args = [
     '--newline',
     '--progress-template', 'DLPCT:%(progress._percent_str)s',
     '-o', path.join(outDir, '%(extractor)s', '%(uploader)s', '%(title)s [%(id)s].%(ext)s'),
   ];
-  if (ff !== null) args.push('-f', 'bv*+ba/b'); else args.push('-f', 'b');
+  const h = o.ytHeight ? `[height<=${o.ytHeight}]` : '';
+  if (ff !== null) args.push('-f', `bv*${h}+ba/b${h}/b`); else args.push('-f', `b${h}/b`);
   if (ff) args.push('--ffmpeg-location', ff);
-  if (thumbnail) args.push('--write-thumbnail');
-  args.push(...cookieArgs(cookies, cookieFile));
+  if (o.thumbnail) args.push('--write-thumbnail');
+  args.push(...cookieArgs(o.cookies, o.cookieFile));
   args.push(url);
   return args;
 }
 
 // gallery-dl 실행 인자 (python -m gallery_dl ...)
-function gallerydlArgs(url, outDir, cookies, cookieFile) {
+function gallerydlArgs(url, outDir, o) {
   const args = ['-m', 'gallery_dl', '-d', outDir];
-  // 인스타는 파일명을 보기 좋게: 계정_날짜_게시물코드_순번 (겹치지 않고 읽기 쉬움)
   if (/instagram\.com/i.test(url)) {
+    // 파일명 보기 좋게: 계정_날짜_게시물코드_순번
     args.push('-f', '{username}_{post_date:%Y-%m-%d}_{post_shortcode}_{num:>02}.{extension}');
+    if (o.stories) args.push('-o', 'include=posts,reels,stories,highlights'); // 스토리도 포함
   }
-  args.push(...cookieArgs(cookies, cookieFile));
+  args.push(...cookieArgs(o.cookies, o.cookieFile));
   args.push(url);
   return args;
+}
+
+// 다운로드 후: outDir에서 이번에 새로 생긴 파일들을 세어 개수·용량·썸네일을 구한다.
+// ponytail: outDir 전체 재귀스캔. 라이브러리가 수만 개면 하위폴더 한정으로 좁힐 것.
+const IMG_RE = /\.(jpe?g|png|webp|gif|bmp|avif)$/i;
+function scanNew(dir, since, acc) {
+  let ents; try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+  for (const e of ents) {
+    const full = path.join(dir, e.name);
+    if (e.isDirectory()) scanNew(full, since, acc);
+    else {
+      let st; try { st = fs.statSync(full); } catch { continue; }
+      // birthtime(로컬 생성시각) 사용. mtime은 서버 원본 날짜라 못 씀.
+      if (st.birthtimeMs >= since) {
+        acc.count++; acc.bytes += st.size;
+        if (!acc.any) acc.any = full;
+        if (!acc.thumb && IMG_RE.test(e.name)) acc.thumb = full;
+      }
+    }
+  }
 }
 
 /**
@@ -89,13 +111,14 @@ function download(url, opts, onEvent) {
   const tool = pickTool(url, opts.mode || 'auto');
 
   let cmd, args;
-  if (tool === 'ytdlp') { cmd = YTDLP; args = ytdlpArgs(url, outDir, opts.cookies, opts.cookieFile, opts.thumbnail); }
-  else { cmd = getPython(); args = gallerydlArgs(url, outDir, opts.cookies, opts.cookieFile); }
+  if (tool === 'ytdlp') { cmd = YTDLP; args = ytdlpArgs(url, outDir, opts); }
+  else { cmd = getPython(); args = gallerydlArgs(url, outDir, opts); }
 
   onEvent({ type: 'start', tool, url });
+  const startTime = Date.now();
 
   return new Promise((resolve) => {
-    const child = spawn(cmd, args, { windowsHide: true });
+    const child = spawn(cmd, args, { windowsHide: true, signal: opts.signal });
     let files = 0;
     const handle = (buf, isErr) => {
       for (const line of buf.toString().split(/\r?\n/)) {
@@ -110,10 +133,18 @@ function download(url, opts, onEvent) {
     };
     child.stdout.on('data', b => handle(b, false));
     child.stderr.on('data', b => handle(b, true));
-    child.on('error', (e) => { onEvent({ type: 'error', line: String(e) }); resolve({ ok: false, tool, error: String(e) }); });
+    child.on('error', (e) => {
+      if (opts.signal && opts.signal.aborted) { onEvent({ type: 'done', canceled: true }); resolve({ ok: false, tool, canceled: true }); return; }
+      onEvent({ type: 'error', line: String(e) }); resolve({ ok: false, tool, error: String(e) });
+    });
     child.on('close', (code) => {
-      onEvent({ type: 'done', code });
-      resolve({ ok: code === 0, tool, code });
+      const canceled = !!(opts.signal && opts.signal.aborted);
+      // 이번에 새로 생긴 파일 집계 (개수·용량·썸네일)
+      const acc = { count: 0, bytes: 0, thumb: null, any: null };
+      scanNew(outDir, startTime - 2000, acc);
+      const result = { ok: code === 0 && !canceled, tool, code, canceled, count: acc.count, bytes: acc.bytes, thumb: acc.thumb, file: acc.any };
+      onEvent({ type: 'done', ...result });
+      resolve(result);
     });
   });
 }

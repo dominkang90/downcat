@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <link rel="stylesheet" href="styles.css" />
+  <title>설정</title>
+  <style>
+    body { padding: 18px 20px; }
+    h2 { margin: 0 0 14px; font-size: 17px; }
+    .group { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; margin-bottom: 12px; box-shadow: var(--shadow); }
+    .group h3 { margin: 0 0 10px; font-size: 13px; color: var(--muted); font-weight: 700; }
+    .field { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 8px 0; }
+    .field select, .field input[type=text] { border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; background: var(--card); color: var(--text); }
+    .path { flex: 1; color: #6b727b; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ghost { background: #eef1f3; border-radius: 8px; padding: 6px 12px; }
+    .ghost:hover { background: #e3e7ea; }
+  </style>
+</head>
+<body>
+  <h2>⚙ 설정</h2>
+
+  <div class="group">
+    <h3>저장</h3>
+    <div class="field">
+      <span class="path" id="outdir">…</span>
+      <button id="pick" class="ghost">폴더 변경</button>
+    </div>
+  </div>
+
+  <div class="group">
+    <h3>유튜브</h3>
+    <div class="field">
+      <label for="ytHeight">최대 화질</label>
+      <select id="ytHeight">
+        <option value="0">최고 화질</option>
+        <option value="2160">4K (2160p)</option>
+        <option value="1080">1080p</option>
+        <option value="720">720p</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="group">
+    <h3>인스타그램</h3>
+    <label class="field"><span>스토리도 함께 받기</span><input id="stories" type="checkbox" /></label>
+  </div>
+
+  <div class="group">
+    <h3>편의</h3>
+    <label class="field"><span>클립보드에서 자동 추가 (링크 복사하면 자동 등록)</span><input id="autoClip" type="checkbox" /></label>
+    <label class="field"><span>창 항상 위에</span><input id="alwaysOnTop" type="checkbox" /></label>
+    <label class="field"><span>작업 완료 알림</span><input id="notify" type="checkbox" /></label>
+  </div>
+
+  <script src="settings.js"></script>
+</body>
+</html>

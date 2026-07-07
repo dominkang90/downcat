@@ -7,48 +7,55 @@
   <title>받냥이</title>
 </head>
 <body>
-  <header>
-    <h1>🐾 받냥이</h1>
-    <nav class="tabs">
-      <button id="tab-dl" class="tab on">다운로드</button>
-      <button id="tab-gallery" class="tab">갤러리</button>
-    </nav>
-  </header>
+  <div class="menubar">
+    <span class="brand">🐾 받냥이</span>
+    <button id="tab-dl" class="tab on">다운로드</button>
+    <button id="tab-gallery" class="tab">갤러리</button>
+    <span class="spacer"></span>
+    <button id="opensettings" class="iconbtn" title="설정">⚙ 설정</button>
+  </div>
 
   <div id="dlview">
-    <section class="input-row">
-      <textarea id="url" rows="2" placeholder="여기에 링크 붙여넣기 · 여러 개면 줄바꿈으로 (유튜브 · 인스타 · imgur ...)" autofocus></textarea>
-    </section>
-    <section class="action-row">
+    <div class="urlbar">
+      <button id="play" class="play" title="받기">▶</button>
+      <div class="pill">
+        <span class="link">🔗</span>
+        <textarea id="url" rows="1" placeholder="URL을 입력하세요 · 여러 개면 줄바꿈"></textarea>
+      </div>
+      <button id="go" class="download" title="받기">⬇</button>
+    </div>
+
+    <div class="optrow">
       <select id="mode" title="받는 방식">
         <option value="auto">자동</option>
         <option value="video">영상</option>
         <option value="image">이미지</option>
       </select>
-      <label class="chk"><input id="thumb" type="checkbox" /> 영상 썸네일도 저장</label>
-      <button id="go">다운로드</button>
-    </section>
+      <label class="chk"><input id="thumb" type="checkbox" /> 영상 썸네일</label>
+      <label class="chk"><input id="usecookie" type="checkbox" /> 로그인 쿠키</label>
+      <button id="instalogin" class="loginbtn">🔑 인스타 로그인</button>
+      <span id="cookiename" class="cookiename">없음</span>
+    </div>
 
-    <section class="folder-row">
-      <span class="label">저장 폴더:</span>
-      <span id="outdir" class="path">…</span>
-      <button id="pick" class="ghost">변경</button>
-      <button id="open" class="ghost">폴더 열기</button>
-    </section>
+    <ul id="tasks" class="tasks"></ul>
 
-    <section class="cookie-row">
-      <label class="chk"><input id="usecookie" type="checkbox" /> 로그인 쿠키 사용</label>
-      <button id="instalogin" class="ghost">🔑 인스타 로그인</button>
-      <span id="cookiename" class="path">없음</span>
-    </section>
-
-    <ul id="tasks"></ul>
+    <div class="bottombar">
+      <select id="sort" title="정렬">
+        <option value="recent">최신순</option>
+        <option value="title">제목순</option>
+        <option value="site">사이트순</option>
+        <option value="status">상태순</option>
+      </select>
+      <input id="filter" class="filter" placeholder="🔎 목록에서 검색" />
+      <div class="labels" id="labels"></div>
+      <span class="count" id="count"></span>
+    </div>
   </div>
 
   <div id="galleryview" hidden>
     <div class="gallery-bar">
-      <button id="refresh" class="ghost">새로고침</button>
-      <span id="gallery-count" class="label"></span>
+      <button id="refresh" class="iconbtn">새로고침</button>
+      <span class="count" id="gallery-count"></span>
     </div>
     <div id="grid" class="grid"></div>
   </div>
