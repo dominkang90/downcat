@@ -40,10 +40,11 @@ async function start() {
   const url = $('url').value.trim();
   if (!url) return;
   const mode = $('mode').value;
+  const cookies = $('usecookie').checked ? $('browser').value : null;
   const jobId = Date.now() + '-' + Math.random().toString(36).slice(2, 6);
   addCard(jobId, url, mode);
   $('url').value = '';
-  const r = await window.api.download(jobId, url, mode);
+  const r = await window.api.download(jobId, url, mode, cookies);
   const c = cards[jobId];
   c.bar.classList.remove('indet');
   if (r.ok) { c.bar.style.width = '100%'; c.el.classList.add('ok'); c.status.textContent = '완료 ✓'; }

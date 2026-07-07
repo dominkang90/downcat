@@ -2,7 +2,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
-  download: (jobId, url, mode) => ipcRenderer.invoke('download', { jobId, url, mode }),
+  download: (jobId, url, mode, cookies) => ipcRenderer.invoke('download', { jobId, url, mode, cookies }),
   getOutDir: () => ipcRenderer.invoke('get-outdir'),
   pickFolder: () => ipcRenderer.invoke('pick-folder'),
   openFolder: () => ipcRenderer.invoke('open-folder'),

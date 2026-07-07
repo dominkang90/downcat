@@ -40,8 +40,8 @@ function pickTool(url, mode) {
   return IMAGE_HOSTS.test(url) ? 'gallerydl' : 'ytdlp'; // auto
 }
 
-// yt-dlp 실행 인자 만들기
-function ytdlpArgs(url, outDir) {
+// yt-dlp 실행 인자 만들기. cookies = 브라우저 이름(chrome 등)이면 로그인 쿠키 사용.
+function ytdlpArgs(url, outDir, cookies) {
   const ff = findFfmpeg();
   const args = [
     '--newline',
@@ -50,13 +50,17 @@ function ytdlpArgs(url, outDir) {
   ];
   if (ff !== null) args.push('-f', 'bv*+ba/b'); else args.push('-f', 'b');
   if (ff) args.push('--ffmpeg-location', ff);
+  if (cookies) args.push('--cookies-from-browser', cookies);
   args.push(url);
   return args;
 }
 
 // gallery-dl 실행 인자 (python -m gallery_dl ...)
-function gallerydlArgs(url, outDir) {
-  return ['-m', 'gallery_dl', '-d', outDir, url];
+function gallerydlArgs(url, outDir, cookies) {
+  const args = ['-m', 'gallery_dl', '-d', outDir];
+  if (cookies) args.push('--cookies-from-browser', cookies);
+  args.push(url);
+  return args;
 }
 
 /**
@@ -72,8 +76,8 @@ function download(url, opts, onEvent) {
   const tool = pickTool(url, opts.mode || 'auto');
 
   let cmd, args;
-  if (tool === 'ytdlp') { cmd = YTDLP; args = ytdlpArgs(url, outDir); }
-  else { cmd = getPython(); args = gallerydlArgs(url, outDir); }
+  if (tool === 'ytdlp') { cmd = YTDLP; args = ytdlpArgs(url, outDir, opts.cookies); }
+  else { cmd = getPython(); args = gallerydlArgs(url, outDir, opts.cookies); }
 
   onEvent({ type: 'start', tool, url });
 
@@ -107,8 +111,9 @@ module.exports = { download, pickTool };
 if (require.main === module) {
   const url = process.argv[2];
   const mode = process.argv[3] || 'auto';
-  if (!url) { console.error('사용법: node engine.js <URL> [auto|video|image]'); process.exit(2); }
-  download(url, { mode }, (e) => {
+  const cookies = process.argv[4] || null; // chrome|edge|firefox
+  if (!url) { console.error('사용법: node engine.js <URL> [auto|video|image] [chrome|edge|firefox]'); process.exit(2); }
+  download(url, { mode, cookies }, (e) => {
     if (e.type === 'progress' && e.percent != null) process.stdout.write(`\r진행률: ${e.percent}%   `);
     else if (e.type === 'progress' && e.files != null) process.stdout.write(`\r받은 파일: ${e.files}개   `);
     else if (e.type === 'start') console.log(`[${e.tool}] 시작: ${e.url}`);

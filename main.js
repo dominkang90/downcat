@@ -51,9 +51,9 @@ ipcMain.handle('pick-folder', async (e) => {
 ipcMain.handle('open-folder', () => shell.openPath(outDir));
 
 // 다운로드: 진행 상황은 'job-event' 채널로 흘려보내고, 최종 결과만 반환한다.
-ipcMain.handle('download', async (e, { jobId, url, mode }) => {
+ipcMain.handle('download', async (e, { jobId, url, mode, cookies }) => {
   const send = (ev) => e.sender.send('job-event', { jobId, ...ev });
-  const result = await engine.download(url, { outDir, mode }, send);
+  const result = await engine.download(url, { outDir, mode, cookies }, send);
   // 완료된 작업 기록
   const tasks = loadJson(TASKS, []);
   tasks.unshift({ url, mode, tool: result.tool, ok: result.ok, at: new Date().toISOString() });
