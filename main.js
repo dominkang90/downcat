@@ -20,6 +20,7 @@ const DEFAULTS = {
   ytHeight: 0,        // 0=최고화질, 1080/2160/4320
   stories: false,     // 인스타 스토리 포함
   autoClip: false,    // 클립보드에서 자동 추가
+  parallel: 2,        // 동시 다운로드 개수 (나머지는 대기)
   alwaysOnTop: false,
   notify: true,       // 작업 완료 알림
 };
@@ -103,6 +104,11 @@ ipcMain.handle('cancel-job', (e, jobId) => {
 
 // 저장된 작업 목록(복원용)
 ipcMain.handle('get-tasks', () => loadJson(TASKS, []));
+
+// 작업 기록 삭제 (카드의 🗑 버튼)
+ipcMain.handle('remove-task', (e, id) => {
+  saveJson(TASKS, loadJson(TASKS, []).filter(t => t.id !== id));
+});
 
 // 작업에 색 라벨 저장
 ipcMain.handle('set-task-label', (e, id, label) => {

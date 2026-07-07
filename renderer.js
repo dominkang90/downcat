@@ -11,7 +11,7 @@ let activeLabel = null; // 하단 색점 필터(null=전체)
 const fmtSize = (b) => !b ? '' : b > 1e9 ? (b / 1e9).toFixed(1) + ' GB' : b > 1e6 ? (b / 1e6).toFixed(1) + ' MB' : Math.max(1, Math.round(b / 1e3)) + ' KB';
 const siteOf = (u) => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return ''; } };
 const toFileUrl = (p) => encodeURI('file:///' + p.replace(/\\/g, '/'));
-const STATUS_TEXT = { downloading: '받는 중…', done: '완료 ✓', partial: '일부 받음 · 사이트가 막음', fail: '실패', canceled: '취소됨' };
+const STATUS_TEXT = { downloading: '받는 중…', queued: '대기 중', done: '완료 ✓', partial: '일부 받음 · 사이트가 막음', fail: '실패', canceled: '취소됨' };
 
 // ── 설정 표시(쿠키) ──
 async function refreshOutDir() { /* 하단 상태용 여지 */ }
@@ -92,10 +92,16 @@ function fillCard(li, t) {
   const right = li.querySelector('.right'); right.innerHTML = '';
   if (t.status === 'downloading') {
     right.appendChild(mkBtn('✕', '취소', () => window.api.cancelJob(t.id)));
+  } else if (t.status === 'queued') {
+    right.appendChild(mkBtn('✕', '대기 취소', () => { t.status = 'canceled'; fillCard(li, t); }));
   } else {
     const f = t.file || t.thumb;
     if (f) right.appendChild(mkBtn('📂', '폴더 열기', () => window.api.showItem(f)));
     if (t.status !== 'done') right.appendChild(mkBtn('↻', '다시 받기', () => startOne(t)));
+    right.appendChild(mkBtn('🗑', '기록 지우기 (받은 파일은 남음)', () => {
+      taskList = taskList.filter(x => x.id !== t.id); delete els[t.id];
+      window.api.removeTask(t.id); render();
+    }));
   }
   // 색 라벨 점
   const ld = li.querySelector('.labeldot');
@@ -135,7 +141,7 @@ function render() {
   const q = $('filter').value.trim().toLowerCase();
   const sort = $('sort').value;
   let list = taskList.filter(t => (!q || t.url.toLowerCase().includes(q)) && (activeLabel == null || t.label === activeLabel));
-  const rank = { downloading: 0, partial: 1, fail: 2, canceled: 3, done: 4 };
+  const rank = { downloading: 0, queued: 1, partial: 2, fail: 3, canceled: 4, done: 5 };
   list.sort((a, b) => sort === 'title' ? a.url.localeCompare(b.url)
     : sort === 'site' ? siteOf(a.url).localeCompare(siteOf(b.url))
     : sort === 'status' ? (rank[a.status] - rank[b.status])
@@ -154,10 +160,26 @@ $('sort').onchange = render;
 $('filter').oninput = render;
 
 // ── 다운로드 실행 ──
+// 대기열: 동시에 parallel개(설정, 기본 2)만 받고 나머지는 '대기 중'으로 줄 세운다.
 let seq = 1;
-async function startOne(t) {
-  t.status = 'downloading'; t.count = 0; t.bytes = 0; t._pct = 0;
+const queue = []; let running = 0;
+async function pump() {
+  const max = (await window.api.getSettings()).parallel || 2;
+  while (running < max && queue.length) {
+    const t = queue.shift();
+    if (t.status !== 'queued') continue; // 대기 중에 취소된 작업은 건너뜀
+    running++;
+    runOne(t).finally(() => { running--; pump(); });
+  }
+}
+function startOne(t) { // 새 작업·다시 받기 → 대기열에 넣는다
+  t.status = 'queued'; t.count = 0; t.bytes = 0; t._pct = 0;
   if (els[t.id]) fillCard(els[t.id], t); else render();
+  queue.push(t); pump();
+}
+async function runOne(t) {
+  t.status = 'downloading';
+  if (els[t.id]) fillCard(els[t.id], t);
   const thumbnail = $('thumb').checked;
   const useCookie = $('usecookie').checked;
   const r = await window.api.download(t.id, t.url, t.mode, useCookie, thumbnail);
@@ -190,11 +212,20 @@ window.api.onJobEvent((ev) => {
   if (ev.type === 'progress' && ev.percent != null) {
     t._pct = ev.percent; li.querySelector('.bar').classList.remove('indet');
     li.querySelector('.bar').style.width = ev.percent + '%';
-    li.querySelector('.statusText').textContent = `받는 중 ${ev.percent}%`;
+    const extra = [ev.speed, ev.eta && '남은 ' + ev.eta].filter(Boolean).join(' · ');
+    li.querySelector('.statusText').textContent = `받는 중 ${ev.percent}%` + (extra ? ' · ' + extra : '');
   } else if (ev.type === 'progress' && ev.files != null) {
     t.count = ev.files; li.querySelector('.cnt').textContent = `🖼 ${ev.files}p`;
     li.querySelector('.statusText').textContent = `받는 중… ${ev.files}개`;
   }
+});
+
+// 링크를 창에 끌어다 놓으면 바로 추가
+document.addEventListener('dragover', (e) => e.preventDefault());
+document.addEventListener('drop', (e) => {
+  e.preventDefault();
+  const txt = e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text/plain');
+  for (const u of (txt || '').split(/\s+/).filter(s => /^https?:\/\//.test(s))) addTask(u, $('mode').value);
 });
 
 // 클립보드에서 자동 추가

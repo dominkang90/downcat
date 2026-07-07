@@ -53,7 +53,7 @@ function ytdlpArgs(url, outDir, o) {
   const ff = findFfmpeg();
   const args = [
     '--newline',
-    '--progress-template', 'DLPCT:%(progress._percent_str)s',
+    '--progress-template', 'DLPCT:%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s',
     '-o', path.join(outDir, '%(extractor)s', '%(uploader)s', '%(title)s [%(id)s].%(ext)s'),
   ];
   const h = o.ytHeight ? `[height<=${o.ytHeight}]` : '';
@@ -123,8 +123,12 @@ function download(url, opts, onEvent) {
     const handle = (buf, isErr) => {
       for (const line of buf.toString().split(/\r?\n/)) {
         if (!line.trim()) continue;
-        const m = line.match(/DLPCT:\s*([\d.]+)%/); // yt-dlp 진행률
-        if (m) { onEvent({ type: 'progress', percent: parseFloat(m[1]) }); continue; }
+        const m = line.match(/DLPCT:\s*([\d.]+)%\|([^|]*)\|(.*)/); // yt-dlp 진행률|속도|남은시간
+        if (m) {
+          const clean = (s) => { s = s.trim(); return s && !/unknown|^n\/?a$/i.test(s) ? s : null; };
+          onEvent({ type: 'progress', percent: parseFloat(m[1]), speed: clean(m[2]), eta: clean(m[3]) });
+          continue;
+        }
         if (tool === 'gallerydl' && /[\\/]/.test(line) && !line.startsWith('[')) {
           files++; onEvent({ type: 'progress', files }); // 파일 하나 받음
         }
@@ -159,7 +163,7 @@ if (require.main === module) {
   const cookieFile = process.env.COOKIEFILE || null; // cookies.txt 경로
   if (!url) { console.error('사용법: node engine.js <URL> [auto|video|image] [chrome|edge|firefox]  (쿠키파일은 COOKIEFILE=경로)'); process.exit(2); }
   download(url, { mode, cookies, cookieFile }, (e) => {
-    if (e.type === 'progress' && e.percent != null) process.stdout.write(`\r진행률: ${e.percent}%   `);
+    if (e.type === 'progress' && e.percent != null) process.stdout.write(`\r진행률: ${e.percent}% ${e.speed || ''} ${e.eta ? '남은 ' + e.eta : ''}   `);
     else if (e.type === 'progress' && e.files != null) process.stdout.write(`\r받은 파일: ${e.files}개   `);
     else if (e.type === 'start') console.log(`[${e.tool}] 시작: ${e.url}`);
     else if (e.type === 'log' && e.isErr) console.error(e.line);

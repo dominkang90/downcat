@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('api', {
   cancelJob: (jobId) => ipcRenderer.invoke('cancel-job', jobId),
   getTasks: () => ipcRenderer.invoke('get-tasks'),
   setTaskLabel: (id, label) => ipcRenderer.invoke('set-task-label', id, label),
+  removeTask: (id) => ipcRenderer.invoke('remove-task', id),
   getOutDir: () => ipcRenderer.invoke('get-outdir'),
   pickFolder: () => ipcRenderer.invoke('pick-folder'),
   openFolder: () => ipcRenderer.invoke('open-folder'),
