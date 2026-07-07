@@ -60,6 +60,7 @@ function ytdlpArgs(url, outDir, o) {
   if (ff !== null) args.push('-f', `bv*${h}+ba/b${h}/b`); else args.push('-f', `b${h}/b`);
   if (ff) args.push('--ffmpeg-location', ff);
   if (o.thumbnail) args.push('--write-thumbnail');
+  if (o.rateLimit) args.push('--limit-rate', o.rateLimit);
   args.push(...cookieArgs(o.cookies, o.cookieFile));
   args.push(url);
   return args;
@@ -73,6 +74,7 @@ function gallerydlArgs(url, outDir, o) {
     args.push('-f', '{username}_{post_date:%Y-%m-%d}_{post_shortcode}_{num:>02}.{extension}');
     if (o.stories) args.push('-o', 'include=posts,reels,stories,highlights'); // 스토리도 포함
   }
+  if (o.rateLimit) args.push('--limit-rate', o.rateLimit);
   args.push(...cookieArgs(o.cookies, o.cookieFile));
   args.push(url);
   return args;
@@ -81,6 +83,7 @@ function gallerydlArgs(url, outDir, o) {
 // 다운로드 후: outDir에서 이번에 새로 생긴 파일들을 세어 개수·용량·썸네일을 구한다.
 // ponytail: outDir 전체 재귀스캔. 라이브러리가 수만 개면 하위폴더 한정으로 좁힐 것.
 const IMG_RE = /\.(jpe?g|png|webp|gif|bmp|avif)$/i;
+const VID_RE = /\.(mp4|webm|mkv|mov|avi|m4v)$/i;
 function scanNew(dir, since, acc) {
   let ents; try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
   for (const e of ents) {
@@ -93,9 +96,25 @@ function scanNew(dir, since, acc) {
         acc.count++; acc.bytes += st.size;
         if (!acc.any) acc.any = full;
         if (!acc.thumb && IMG_RE.test(e.name)) acc.thumb = full;
+        if (!acc.video && VID_RE.test(e.name)) acc.video = full;
       }
     }
   }
+}
+
+// 영상만 받았으면(이미지 썸네일 없음) ffmpeg로 1초 지점 한 장면을 뽑아 카드 썸네일로 쓴다.
+const THUMBS_DIR = path.join(__dirname, 'thumbs');
+function extractThumb(video) {
+  const ffDir = findFfmpeg();
+  if (ffDir === null) return Promise.resolve(null); // ffmpeg 없으면 아이콘으로 표시
+  const ffmpeg = ffDir ? path.join(ffDir, 'ffmpeg.exe') : 'ffmpeg';
+  fs.mkdirSync(THUMBS_DIR, { recursive: true });
+  const out = path.join(THUMBS_DIR, path.basename(video).replace(/\.[^.]+$/, '') + '.jpg');
+  return new Promise((res) => {
+    const { execFile } = require('child_process');
+    execFile(ffmpeg, ['-y', '-ss', '1', '-i', video, '-frames:v', '1', '-vf', 'scale=128:-2', out],
+      { windowsHide: true }, (err) => res(!err && fs.existsSync(out) ? out : null));
+  });
 }
 
 /**
@@ -141,11 +160,12 @@ function download(url, opts, onEvent) {
       if (opts.signal && opts.signal.aborted) { onEvent({ type: 'done', canceled: true }); resolve({ ok: false, tool, canceled: true }); return; }
       onEvent({ type: 'error', line: String(e) }); resolve({ ok: false, tool, error: String(e) });
     });
-    child.on('close', (code) => {
+    child.on('close', async (code) => {
       const canceled = !!(opts.signal && opts.signal.aborted);
       // 이번에 새로 생긴 파일 집계 (개수·용량·썸네일)
-      const acc = { count: 0, bytes: 0, thumb: null, any: null };
+      const acc = { count: 0, bytes: 0, thumb: null, any: null, video: null };
       scanNew(outDir, startTime - 2000, acc);
+      if (!acc.thumb && acc.video) acc.thumb = await extractThumb(acc.video);
       const result = { ok: code === 0 && !canceled, tool, code, canceled, count: acc.count, bytes: acc.bytes, thumb: acc.thumb, file: acc.any };
       onEvent({ type: 'done', ...result });
       resolve(result);

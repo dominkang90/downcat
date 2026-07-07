@@ -21,6 +21,8 @@ const DEFAULTS = {
   stories: false,     // 인스타 스토리 포함
   autoClip: false,    // 클립보드에서 자동 추가
   parallel: 2,        // 동시 다운로드 개수 (나머지는 대기)
+  rateLimit: '',      // 최대 다운로드 속도 (''=무제한, '5M' 등)
+  autoRemove: false,  // 완료된 작업 카드 자동 제거
   alwaysOnTop: false,
   notify: true,       // 작업 완료 알림
 };
@@ -231,7 +233,7 @@ ipcMain.handle('download', async (e, { jobId, url, mode, useCookie, thumbnail })
   const result = await engine.download(url, {
     outDir: settings.outDir, mode,
     cookieFile: useCookie ? settings.cookieFile : null,
-    thumbnail, ytHeight: settings.ytHeight, stories: settings.stories,
+    thumbnail, ytHeight: settings.ytHeight, stories: settings.stories, rateLimit: settings.rateLimit,
     signal: ac.signal,
   }, send);
   delete jobs[jobId];

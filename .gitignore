@@ -1,6 +1,7 @@
 node_modules/
 bin/*.exe
 downloads/
+thumbs/
 cookies/
 config.json
 tasks.json

@@ -10,7 +10,8 @@ const LABELS = ['', '#e5484d', '#f2820c', '#f5c518', '#46a758', '#00b0c7', '#3b8
 let activeLabel = null; // 하단 색점 필터(null=전체)
 const fmtSize = (b) => !b ? '' : b > 1e9 ? (b / 1e9).toFixed(1) + ' GB' : b > 1e6 ? (b / 1e6).toFixed(1) + ' MB' : Math.max(1, Math.round(b / 1e3)) + ' KB';
 const siteOf = (u) => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return ''; } };
-const toFileUrl = (p) => encodeURI('file:///' + p.replace(/\\/g, '/'));
+const toFileUrl = (p) => encodeURI('file:///' + p.replace(/\\/g, '/')).replace(/#/g, '%23'); // #은 encodeURI가 안 바꿔서 직접
+const IMG_RE = /\.(jpe?g|png|webp|gif|bmp|avif)$/i;
 const STATUS_TEXT = { downloading: '받는 중…', queued: '대기 중', done: '완료 ✓', partial: '일부 받음 · 사이트가 막음', fail: '실패', canceled: '취소됨' };
 
 // ── 설정 표시(쿠키) ──
@@ -62,7 +63,8 @@ async function renderGallery() {
 
 // ── 작업 카드 ──
 function cardHtml(t) {
-  const thumb = t.thumb ? `<img src="${toFileUrl(t.thumb)}" />` : '🎬';
+  // 옛 기록에 영상 경로가 thumb으로 들어간 경우가 있어 이미지 파일일 때만 <img>로
+  const thumb = t.thumb && IMG_RE.test(t.thumb) ? `<img src="${toFileUrl(t.thumb)}" />` : '🎬';
   return `
     <div class="thumb">${thumb}</div>
     <div class="info">
@@ -98,10 +100,7 @@ function fillCard(li, t) {
     const f = t.file || t.thumb;
     if (f) right.appendChild(mkBtn('📂', '폴더 열기', () => window.api.showItem(f)));
     if (t.status !== 'done') right.appendChild(mkBtn('↻', '다시 받기', () => startOne(t)));
-    right.appendChild(mkBtn('🗑', '기록 지우기 (받은 파일은 남음)', () => {
-      taskList = taskList.filter(x => x.id !== t.id); delete els[t.id];
-      window.api.removeTask(t.id); render();
-    }));
+    right.appendChild(mkBtn('🗑', '기록 지우기 (받은 파일은 남음)', () => removeCard(t)));
   }
   // 색 라벨 점
   const ld = li.querySelector('.labeldot');
@@ -116,6 +115,12 @@ function fillCard(li, t) {
     ld.style.boxShadow = t.label ? '0 0 0 1px rgba(0,0,0,.2)' : 'inset 0 0 0 1px #d5dade';
     if (activeLabel != null) render();
   };
+}
+
+// 카드 하나를 목록·저장기록에서 제거 (받은 파일은 남음)
+function removeCard(t) {
+  taskList = taskList.filter(x => x.id !== t.id); delete els[t.id];
+  window.api.removeTask(t.id); render();
 }
 
 // 하단 색점: 그 색 라벨만 보기(다시 누르면 해제)
@@ -186,6 +191,7 @@ async function runOne(t) {
   t.status = r.canceled ? 'canceled' : r.ok ? 'done' : (r.count > 0 ? 'partial' : 'fail');
   t.count = r.count; t.bytes = r.bytes; t.thumb = r.thumb; t.file = r.file;
   if (els[t.id]) fillCard(els[t.id], t);
+  if (t.status === 'done' && (await window.api.getSettings()).autoRemove) removeCard(t); // 설정: 완료 자동 제거
 }
 function addTask(url, mode) {
   const t = { id: Date.now() + '-' + Math.random().toString(36).slice(2, 6), url, mode, status: 'downloading', count: 0, bytes: 0, thumb: null, _seq: seq++ };
