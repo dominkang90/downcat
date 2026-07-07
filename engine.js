@@ -54,6 +54,8 @@ function ytdlpArgs(url, outDir, o) {
   const args = [
     '--newline',
     '--progress-template', 'DLPCT:%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s',
+    // 받은(또는 이미 있던) 파일의 최종 경로를 한 줄씩 찍게 한다 → 집계가 옆 작업과 안 섞임
+    '--print', 'after_move:DCFILE:%(filepath)s', '--no-simulate',
     '-o', path.join(outDir, '%(extractor)s', '%(uploader)s', '%(title)s [%(id)s].%(ext)s'),
   ];
   const h = o.ytHeight ? `[height<=${o.ytHeight}]` : '';
@@ -138,7 +140,7 @@ function download(url, opts, onEvent) {
 
   return new Promise((resolve) => {
     const child = spawn(cmd, args, { windowsHide: true, signal: opts.signal });
-    let files = 0;
+    const jobFiles = []; let newCount = 0; // 이 작업의 출력에서 직접 모은 파일 목록
     const handle = (buf, isErr) => {
       for (const line of buf.toString().split(/\r?\n/)) {
         if (!line.trim()) continue;
@@ -148,8 +150,22 @@ function download(url, opts, onEvent) {
           onEvent({ type: 'progress', percent: parseFloat(m[1]), speed: clean(m[2]), eta: clean(m[3]) });
           continue;
         }
-        if (tool === 'gallerydl' && /[\\/]/.test(line) && !line.startsWith('[')) {
-          files++; onEvent({ type: 'progress', files }); // 파일 하나 받음
+        const f = line.match(/^DCFILE:(.+)$/); // yt-dlp가 알려준 최종 파일 경로 (재다운로드 스킵도 찍힘)
+        if (f) {
+          jobFiles.push(f[1].trim());
+          newCount++; onEvent({ type: 'progress', files: newCount });
+          continue;
+        }
+        if (tool === 'gallerydl') {
+          // gallery-dl은 받은 파일 경로를 그대로, 이미 있던 파일은 '# 경로'로 찍는다
+          const t = line.trim();
+          const skipped = t.startsWith('# ');
+          const p = skipped ? t.slice(2).trim() : t;
+          if (/^[a-z]:[\\/]/i.test(p) && fs.existsSync(p)) {
+            jobFiles.push(p);
+            if (!skipped) { newCount++; onEvent({ type: 'progress', files: newCount }); }
+            continue;
+          }
         }
         onEvent({ type: 'log', line, isErr });
       }
@@ -162,11 +178,23 @@ function download(url, opts, onEvent) {
     });
     child.on('close', async (code) => {
       const canceled = !!(opts.signal && opts.signal.aborted);
-      // 이번에 새로 생긴 파일 집계 (개수·용량·썸네일)
-      const acc = { count: 0, bytes: 0, thumb: null, any: null, video: null };
-      scanNew(outDir, startTime - 2000, acc);
-      if (!acc.thumb && acc.video) acc.thumb = await extractThumb(acc.video);
-      const result = { ok: code === 0 && !canceled, tool, code, canceled, count: acc.count, bytes: acc.bytes, thumb: acc.thumb, file: acc.any };
+      // 이 작업의 출력에서 모은 파일로만 집계 → 동시 다운로드끼리 안 섞인다
+      const all = [...new Set(jobFiles)].filter(p => { try { return fs.existsSync(p); } catch { return false; } });
+      if (!all.length && code === 0 && !canceled) {
+        // ponytail: 출력 형식을 못 알아본 사이트용 폴백(예전 시간창 스캔). 성공했을 때만 — 실패엔 안 써서 남의 파일을 안 줍는다
+        const acc = { count: 0, bytes: 0, thumb: null, any: null, video: null };
+        scanNew(outDir, startTime - 2000, acc);
+        if (!acc.thumb && acc.video) acc.thumb = await extractThumb(acc.video);
+        const result = { ok: true, tool, code, canceled, count: acc.count, bytes: acc.bytes, thumb: acc.thumb, file: acc.any };
+        onEvent({ type: 'done', ...result });
+        resolve(result); return;
+      }
+      let bytes = 0;
+      for (const p of all) { try { bytes += fs.statSync(p).size; } catch {} }
+      let thumb = all.find(p => IMG_RE.test(p)) || null;
+      const video = all.find(p => VID_RE.test(p));
+      if (!thumb && video) thumb = await extractThumb(video);
+      const result = { ok: code === 0 && !canceled, tool, code, canceled, count: all.length, bytes, thumb, file: all[0] || null };
       onEvent({ type: 'done', ...result });
       resolve(result);
     });

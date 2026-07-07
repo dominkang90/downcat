@@ -64,10 +64,14 @@ app.whenReady().then(() => {
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
+// 앱을 닫으면 진행 중이던 다운로드 프로세스도 같이 끝낸다 (윈도우는 자식 프로세스가 저절로 안 죽음).
+// ponytail: yt-dlp가 띄운 ffmpeg 손자 프로세스까지는 못 죽임 — 병합 몇 초짜리라 감수
+app.on('before-quit', () => { for (const id in jobs) jobs[id].abort(); });
 
 // 클립보드 감시: autoClip이 켜져 있으면 새 URL이 복사될 때 창에 알려 자동 추가.
 let lastClip = '';
 function startClipboardWatch() {
+  lastClip = (clipboard.readText() || '').trim(); // 앱 켜기 전에 복사해둔 링크는 무시
   setInterval(() => {
     if (!settings.autoClip || !mainWin || mainWin.isDestroyed()) return;
     const t = (clipboard.readText() || '').trim();
@@ -198,8 +202,11 @@ async function exportAllCookies(ses) {
   return cookies.length;
 }
 
-ipcMain.handle('open-login', (e, startUrl) => {
+ipcMain.handle('open-login', async (e, startUrl) => {
   const ses = session.fromPartition('persist:downcat');
+  // 로그인 없이 그냥 닫으면 아무것도 안 바꾸도록, 열기 전 쿠키 지문을 기억해 비교한다
+  const fingerprint = async () => JSON.stringify((await ses.cookies.get({})).map(c => [c.domain, c.name, c.value]).sort());
+  const before = await fingerprint();
   const win = new BrowserWindow({
     width: 520, height: 760, title: '로그인 (로그인 후 이 창을 닫으세요)',
     parent: mainWin, webPreferences: { partition: 'persist:downcat' },
@@ -207,9 +214,12 @@ ipcMain.handle('open-login', (e, startUrl) => {
   win.loadURL(startUrl || 'https://www.instagram.com/accounts/login/');
   return new Promise((resolve) => {
     win.on('closed', async () => {
+      if (await fingerprint() === before) { resolve({ ok: false, unchanged: true }); return; } // 쿠키 변화 전혀 없음(즉시 닫음) → 아무것도 안 함
       const n = await exportAllCookies(ses);
-      settings.cookieFile = COOKIES_TXT; saveCfg();
-      resolve({ ok: n > 0, count: n, file: COOKIES_TXT });
+      // 사용자가 직접 고른 외부 cookies.txt를 쓰는 중이면 말없이 교체하지 않는다 (renderer가 물어봄)
+      const external = !!settings.cookieFile && settings.cookieFile !== COOKIES_TXT;
+      if (!external) { settings.cookieFile = COOKIES_TXT; saveCfg(); }
+      resolve({ ok: n > 0, count: n, file: COOKIES_TXT, external });
     });
   });
 });
@@ -227,15 +237,20 @@ ipcMain.handle('pick-cookie-file', async (e) => {
 
 // 다운로드: 진행 상황은 'job-event' 채널로, 최종 결과만 반환. jobId로 취소 가능.
 ipcMain.handle('download', async (e, { jobId, url, mode, useCookie, thumbnail }) => {
-  const send = (ev) => e.sender.send('job-event', { jobId, ...ev });
+  const send = (ev) => { if (!e.sender.isDestroyed()) e.sender.send('job-event', { jobId, ...ev }); }; // 종료 중 창 사라짐 방어
   const ac = new AbortController();
   jobs[jobId] = ac;
-  const result = await engine.download(url, {
-    outDir: settings.outDir, mode,
-    cookieFile: useCookie ? settings.cookieFile : null,
-    thumbnail, ytHeight: settings.ytHeight, stories: settings.stories, rateLimit: settings.rateLimit,
-    signal: ac.signal,
-  }, send);
+  let result;
+  try {
+    result = await engine.download(url, {
+      outDir: settings.outDir, mode,
+      cookieFile: useCookie ? settings.cookieFile : null,
+      thumbnail, ytHeight: settings.ytHeight, stories: settings.stories, rateLimit: settings.rateLimit,
+      signal: ac.signal,
+    }, send);
+  } catch (err) { // 저장폴더 소실(USB 뽑힘 등) — 카드가 '받는 중'에 영원히 멈추지 않게 실패로 처리
+    result = { ok: false, tool: null, code: -1, count: 0, bytes: 0, thumb: null, file: null, error: String(err) };
+  }
   delete jobs[jobId];
 
   const status = result.canceled ? 'canceled' : result.ok ? 'done' : (result.count > 0 ? 'partial' : 'fail');

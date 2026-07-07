@@ -22,6 +22,12 @@ async function refreshCookie() {
 }
 refreshCookie();
 
+// 체크박스 상태 기억 (재시작해도 유지 — 특히 '로그인 쿠키'가 꺼지면 인스타가 매번 실패했음)
+for (const id of ['usecookie', 'thumb']) {
+  $(id).checked = localStorage.getItem('chk:' + id) === '1';
+  $(id).addEventListener('change', () => localStorage.setItem('chk:' + id, $(id).checked ? '1' : '0'));
+}
+
 $('opensettings').onclick = () => window.api.openSettings();
 $('instalogin').onclick = async () => {
   // 입력칸에 URL이 있으면 그 사이트로, 없으면 인스타 로그인 페이지로 연다.
@@ -31,7 +37,12 @@ $('instalogin').onclick = async () => {
   $('instalogin').textContent = '로그인 창 열림…';
   const r = await window.api.openLogin(start); // 창을 닫으면 resolve
   $('instalogin').textContent = '🔑 로그인';
-  if (r.ok) { $('usecookie').checked = true; await refreshCookie(); }
+  if (r.ok) {
+    if (r.external && confirm('직접 고른 쿠키 파일을 쓰는 중이에요.\n방금 로그인한 앱 쿠키로 바꿀까요?')) {
+      await window.api.setSettings({ cookieFile: r.file });
+    }
+    $('usecookie').checked = true; localStorage.setItem('chk:usecookie', '1'); await refreshCookie();
+  }
 };
 
 // ── 탭 ──
@@ -187,9 +198,12 @@ async function runOne(t) {
   if (els[t.id]) fillCard(els[t.id], t);
   const thumbnail = $('thumb').checked;
   const useCookie = $('usecookie').checked;
-  const r = await window.api.download(t.id, t.url, t.mode, useCookie, thumbnail);
+  const r = await window.api.download(t.id, t.url, t.mode, useCookie, thumbnail)
+    .catch(() => ({ ok: false, count: 0, bytes: 0 })); // IPC까지 죽어도 카드는 실패로 마감
   t.status = r.canceled ? 'canceled' : r.ok ? 'done' : (r.count > 0 ? 'partial' : 'fail');
-  t.count = r.count; t.bytes = r.bytes; t.thumb = r.thumb; t.file = r.file;
+  t.count = r.count; t.bytes = r.bytes;
+  if (r.thumb) t.thumb = r.thumb; // 새 정보가 없으면 기존 썸네일·파일 유지 ('다시 받기'가 카드를 비우지 않게)
+  if (r.file) t.file = r.file;
   if (els[t.id]) fillCard(els[t.id], t);
   if (t.status === 'done' && (await window.api.getSettings()).autoRemove) removeCard(t); // 설정: 완료 자동 제거
 }
@@ -246,8 +260,7 @@ window.api.onClipboardUrl((url) => {
   const seen = new Set();
   for (const r of saved) {
     if (seen.has(r.id)) continue; seen.add(r.id);
-    taskList.push({ ...r, _seq: seq++ });
+    taskList.push({ ...r, _seq: -(seq++) }); // 저장 파일은 최신부터라 음수로 내려가야 '최신순'이 맞음 (새 작업은 양수라 항상 위)
   }
-  taskList.reverse(); // 최신이 위로
   render();
 })();
