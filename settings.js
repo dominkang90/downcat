@@ -19,3 +19,17 @@ $('autoClip').onchange = () => save({ autoClip: $('autoClip').checked });
 $('alwaysOnTop').onchange = () => save({ alwaysOnTop: $('alwaysOnTop').checked });
 $('notify').onchange = () => save({ notify: $('notify').checked });
 $('pick').onclick = async () => { const d = await window.api.pickFolder(); $('outdir').textContent = d; };
+
+// ffmpeg 상태/설치
+async function refreshFf() {
+  const has = await window.api.ffmpegStatus();
+  $('ffstatus').textContent = has ? 'ffmpeg 설치됨 ✓ (고화질 병합 가능)' : '고화질(1080p+) 병합엔 ffmpeg 필요';
+  $('ffinstall').style.display = has ? 'none' : '';
+}
+refreshFf();
+$('ffinstall').onclick = async () => {
+  $('ffinstall').disabled = true; $('ffinstall').textContent = '설치 중… (약 40MB)';
+  const r = await window.api.installFfmpeg();
+  $('ffinstall').disabled = false; $('ffinstall').textContent = 'ffmpeg 설치';
+  if (r.ok) refreshFf(); else alert('설치 실패: ' + r.error);
+};

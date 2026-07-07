@@ -6,7 +6,7 @@ const engine = require('./engine');
 
 const CONFIG = path.join(__dirname, 'config.json');
 const TASKS = path.join(__dirname, 'tasks.json');
-const INSTA_COOKIES = path.join(__dirname, 'cookies', 'instagram.txt');
+const COOKIES_TXT = path.join(__dirname, 'cookies', 'cookies.txt');
 
 function loadJson(file, fallback) {
   try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return fallback; }
@@ -104,6 +104,43 @@ ipcMain.handle('cancel-job', (e, jobId) => {
 // 저장된 작업 목록(복원용)
 ipcMain.handle('get-tasks', () => loadJson(TASKS, []));
 
+// 작업에 색 라벨 저장
+ipcMain.handle('set-task-label', (e, id, label) => {
+  const tasks = loadJson(TASKS, []);
+  const t = tasks.find(x => x.id === id);
+  if (t) { t.label = label; saveJson(TASKS, tasks); }
+});
+
+// ffmpeg (유튜브 고화질 병합용) 상태 확인 / 설치
+const FFMPEG = path.join(__dirname, 'bin', 'ffmpeg.exe');
+ipcMain.handle('ffmpeg-status', () => fs.existsSync(FFMPEG));
+ipcMain.handle('install-ffmpeg', async () => {
+  const { execFile } = require('child_process');
+  const url = 'https://github.com/yt-dlp/FFmpeg-Builds/releases/latest/download/ffmpeg-master-latest-win64-gpl.zip';
+  const tmpDir = path.join(app.getPath('temp'), 'downcat-ffmpeg');
+  const zip = tmpDir + '.zip';
+  try {
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+    const ps = `$ErrorActionPreference='Stop'; Invoke-WebRequest -Uri '${url}' -OutFile '${zip}'; Expand-Archive -Path '${zip}' -DestinationPath '${tmpDir}' -Force`;
+    await new Promise((res, rej) => execFile('powershell', ['-NoProfile', '-Command', ps], { maxBuffer: 1 << 28 }, (e) => e ? rej(e) : res()));
+    let found = null;
+    (function walkFor(d) {
+      for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+        const f = path.join(d, e.name);
+        if (e.isDirectory()) walkFor(f);
+        else if (!found && e.name.toLowerCase() === 'ffmpeg.exe') found = f;
+      }
+    })(tmpDir);
+    if (!found) throw new Error('압축 안에서 ffmpeg.exe를 못 찾음');
+    fs.mkdirSync(path.dirname(FFMPEG), { recursive: true });
+    fs.copyFileSync(found, FFMPEG);
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); fs.rmSync(zip, { force: true }); } catch {}
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: String(err && err.message || err) };
+  }
+});
+
 // 설정 창
 let settingsWin = null;
 ipcMain.handle('open-settings', () => {
@@ -139,42 +176,33 @@ ipcMain.handle('list-gallery', () => {
   return out.slice(0, 500); // ponytail: 최근 500개면 충분, 넘으면 페이지네이션
 });
 
-// 인스타 로그인: 앱 안 브라우저 창을 띄우고, 로그인되면(=sessionid 쿠키 생기면)
-// 그 쿠키를 Netscape cookies.txt로 뽑아 저장·적용한다. (크롬 ABE 안 거침)
+// 범용 로그인: 앱 안 브라우저 창에서 아무 사이트나 로그인하고 창을 닫으면,
+// 그 세션의 쿠키 전체를 Netscape cookies.txt로 저장·적용한다. (크롬 ABE 안 거침)
 function netscapeLine(c) {
   const inclSub = c.domain.startsWith('.') ? 'TRUE' : 'FALSE';
   const exp = Math.floor(c.expirationDate || (Date.now() / 1000 + 31536000));
   return [c.domain, inclSub, c.path || '/', c.secure ? 'TRUE' : 'FALSE', exp, c.name, c.value].join('\t');
 }
-async function exportInstaCookies(ses) {
-  const cookies = (await ses.cookies.get({})).filter(c => c.domain.includes('instagram.com'));
-  fs.mkdirSync(path.dirname(INSTA_COOKIES), { recursive: true });
-  fs.writeFileSync(INSTA_COOKIES, ['# Netscape HTTP Cookie File', ...cookies.map(netscapeLine)].join('\n') + '\n');
-  return cookies.some(c => c.name === 'sessionid');
+async function exportAllCookies(ses) {
+  const cookies = (await ses.cookies.get({})).filter(c => c.value);
+  fs.mkdirSync(path.dirname(COOKIES_TXT), { recursive: true });
+  fs.writeFileSync(COOKIES_TXT, ['# Netscape HTTP Cookie File', ...cookies.map(netscapeLine)].join('\n') + '\n');
+  return cookies.length;
 }
 
-ipcMain.handle('insta-login', (e) => {
-  const ses = session.fromPartition('persist:insta');
+ipcMain.handle('open-login', (e, startUrl) => {
+  const ses = session.fromPartition('persist:downcat');
   const win = new BrowserWindow({
-    width: 480, height: 760, title: '인스타그램 로그인',
-    parent: BrowserWindow.fromWebContents(e.sender), modal: false,
-    webPreferences: { partition: 'persist:insta' },
+    width: 520, height: 760, title: '로그인 (로그인 후 이 창을 닫으세요)',
+    parent: mainWin, webPreferences: { partition: 'persist:downcat' },
   });
-  win.loadURL('https://www.instagram.com/accounts/login/');
+  win.loadURL(startUrl || 'https://www.instagram.com/accounts/login/');
   return new Promise((resolve) => {
-    let done = false;
-    const timer = setInterval(async () => {
-      if (done || win.isDestroyed()) return;
-      const cs = await ses.cookies.get({ name: 'sessionid' });
-      if (cs.some(c => c.domain.includes('instagram.com'))) {
-        done = true; clearInterval(timer);
-        const ok = await exportInstaCookies(ses);
-        settings.cookieFile = INSTA_COOKIES; saveCfg();
-        if (!win.isDestroyed()) win.close();
-        resolve({ ok, file: INSTA_COOKIES });
-      }
-    }, 1500);
-    win.on('closed', () => { if (!done) { done = true; clearInterval(timer); resolve({ ok: false, canceled: true }); } });
+    win.on('closed', async () => {
+      const n = await exportAllCookies(ses);
+      settings.cookieFile = COOKIES_TXT; saveCfg();
+      resolve({ ok: n > 0, count: n, file: COOKIES_TXT });
+    });
   });
 });
 

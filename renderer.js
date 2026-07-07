@@ -6,6 +6,8 @@ const tasksEl = $('tasks');
 let taskList = [];      // {id,url,mode,status,count,bytes,thumb,tool}
 const els = {};         // id -> {el, bar, statusEl, thumbEl, subEl, rightEl}
 
+const LABELS = ['', '#e5484d', '#f2820c', '#f5c518', '#46a758', '#00b0c7', '#3b82f6', '#d6409f', '#9aa1ab'];
+let activeLabel = null; // 하단 색점 필터(null=전체)
 const fmtSize = (b) => !b ? '' : b > 1e9 ? (b / 1e9).toFixed(1) + ' GB' : b > 1e6 ? (b / 1e6).toFixed(1) + ' MB' : Math.max(1, Math.round(b / 1e3)) + ' KB';
 const siteOf = (u) => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return ''; } };
 const toFileUrl = (p) => encodeURI('file:///' + p.replace(/\\/g, '/'));
@@ -21,11 +23,14 @@ refreshCookie();
 
 $('opensettings').onclick = () => window.api.openSettings();
 $('instalogin').onclick = async () => {
+  // 입력칸에 URL이 있으면 그 사이트로, 없으면 인스타 로그인 페이지로 연다.
+  const first = ($('url').value.trim().split(/\s+/)[0]) || '';
+  let start = 'https://www.instagram.com/accounts/login/';
+  try { if (first) start = new URL(first).origin + '/'; } catch {}
   $('instalogin').textContent = '로그인 창 열림…';
-  const r = await window.api.instaLogin();
-  $('instalogin').textContent = '🔑 인스타 로그인';
+  const r = await window.api.openLogin(start); // 창을 닫으면 resolve
+  $('instalogin').textContent = '🔑 로그인';
   if (r.ok) { $('usecookie').checked = true; await refreshCookie(); }
-  else if (!r.canceled) alert('로그인은 됐는데 쿠키를 못 읽었어. 다시 시도해줘.');
 };
 
 // ── 탭 ──
@@ -70,6 +75,7 @@ function cardHtml(t) {
       </div>
     </div>
     <div class="right"></div>
+    <span class="labeldot" title="색 라벨(클릭해서 바꾸기)"></span>
     <div class="track"><div class="bar"></div></div>`;
 }
 function fillCard(li, t) {
@@ -91,7 +97,33 @@ function fillCard(li, t) {
     if (f) right.appendChild(mkBtn('📂', '폴더 열기', () => window.api.showItem(f)));
     if (t.status !== 'done') right.appendChild(mkBtn('↻', '다시 받기', () => startOne(t)));
   }
+  // 색 라벨 점
+  const ld = li.querySelector('.labeldot');
+  ld.style.background = t.label || 'transparent';
+  ld.style.boxShadow = t.label ? '0 0 0 1px rgba(0,0,0,.2)' : 'inset 0 0 0 1px #d5dade';
+  ld.onclick = (ev) => {
+    ev.stopPropagation();
+    const i = LABELS.indexOf(t.label || '');
+    t.label = LABELS[(i + 1) % LABELS.length];
+    window.api.setTaskLabel(t.id, t.label);
+    ld.style.background = t.label || 'transparent';
+    ld.style.boxShadow = t.label ? '0 0 0 1px rgba(0,0,0,.2)' : 'inset 0 0 0 1px #d5dade';
+    if (activeLabel != null) render();
+  };
 }
+
+// 하단 색점: 그 색 라벨만 보기(다시 누르면 해제)
+function buildLabels() {
+  const bar = $('labels'); bar.innerHTML = '';
+  for (const c of LABELS.slice(1)) {
+    const d = document.createElement('span');
+    d.className = 'dot'; d.style.background = c; d.title = '이 색만 보기';
+    if (activeLabel === c) d.style.outline = '2px solid #232830';
+    d.onclick = () => { activeLabel = activeLabel === c ? null : c; buildLabels(); render(); };
+    bar.appendChild(d);
+  }
+}
+buildLabels();
 function mkBtn(icon, title, onclick) {
   const b = document.createElement('button');
   b.className = 'act'; b.textContent = icon; b.title = title; b.onclick = onclick;
@@ -102,7 +134,7 @@ function mkBtn(icon, title, onclick) {
 function render() {
   const q = $('filter').value.trim().toLowerCase();
   const sort = $('sort').value;
-  let list = taskList.filter(t => !q || t.url.toLowerCase().includes(q));
+  let list = taskList.filter(t => (!q || t.url.toLowerCase().includes(q)) && (activeLabel == null || t.label === activeLabel));
   const rank = { downloading: 0, partial: 1, fail: 2, canceled: 3, done: 4 };
   list.sort((a, b) => sort === 'title' ? a.url.localeCompare(b.url)
     : sort === 'site' ? siteOf(a.url).localeCompare(siteOf(b.url))
