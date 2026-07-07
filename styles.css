@@ -3,8 +3,12 @@ body {
   margin: 0; padding: 18px 20px; font-family: "Segoe UI", "맑은 고딕", system-ui, sans-serif;
   background: #14161c; color: #e7e9ee;
 }
+header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
 header h1 { margin: 0; font-size: 22px; }
-.sub { margin: 4px 0 16px; color: #9aa2b1; font-size: 13px; }
+.tabs { display: flex; gap: 6px; }
+.tab { background: #262a34; color: #cfd4de; padding: 7px 16px; border-radius: 8px; }
+.tab.on { background: #5b8cff; color: #fff; }
+.chk { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #9aa2b1; cursor: pointer; }
 
 .input-row { margin-bottom: 8px; }
 #url { width: 100%; padding: 11px 13px; border-radius: 9px; border: 1px solid #2c313d;
@@ -30,6 +34,17 @@ ul#tasks { list-style: none; margin: 0; padding: 0; display: flex; flex-directio
 .task { background: #1c1f28; border: 1px solid #2c313d; border-radius: 11px; padding: 12px 14px; }
 .task.ok { border-color: #2f6b45; }
 .task.fail { border-color: #7a3535; }
+.task.partial { border-color: #7a6a35; }
+.task.partial .bar { background: #d1a53a; }
+
+/* 갤러리 */
+.gallery-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
+.tile { background: #1c1f28; border: 1px solid #2c313d; border-radius: 9px; overflow: hidden; cursor: pointer; }
+.tile img { width: 100%; height: 120px; object-fit: cover; display: block; }
+.tile .vthumb { height: 120px; display: flex; align-items: center; justify-content: center; font-size: 34px; background: #0f1117; }
+.tile .cap { font-size: 10px; color: #9aa2b1; padding: 4px 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tile:hover { border-color: #5b8cff; }
 .task-top { display: flex; justify-content: space-between; gap: 10px; align-items: center; }
 .task .url { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .badge { font-size: 11px; background: #2c313d; color: #aeb6c6; padding: 2px 8px; border-radius: 20px; flex: none; }

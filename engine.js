@@ -48,8 +48,8 @@ function cookieArgs(cookies, cookieFile) {
   return [];
 }
 
-// yt-dlp 실행 인자 만들기.
-function ytdlpArgs(url, outDir, cookies, cookieFile) {
+// yt-dlp 실행 인자 만들기. thumbnail=true면 영상 썸네일도 저장.
+function ytdlpArgs(url, outDir, cookies, cookieFile, thumbnail) {
   const ff = findFfmpeg();
   const args = [
     '--newline',
@@ -58,6 +58,7 @@ function ytdlpArgs(url, outDir, cookies, cookieFile) {
   ];
   if (ff !== null) args.push('-f', 'bv*+ba/b'); else args.push('-f', 'b');
   if (ff) args.push('--ffmpeg-location', ff);
+  if (thumbnail) args.push('--write-thumbnail');
   args.push(...cookieArgs(cookies, cookieFile));
   args.push(url);
   return args;
@@ -66,6 +67,10 @@ function ytdlpArgs(url, outDir, cookies, cookieFile) {
 // gallery-dl 실행 인자 (python -m gallery_dl ...)
 function gallerydlArgs(url, outDir, cookies, cookieFile) {
   const args = ['-m', 'gallery_dl', '-d', outDir];
+  // 인스타는 파일명을 보기 좋게: 계정_날짜_게시물코드_순번 (겹치지 않고 읽기 쉬움)
+  if (/instagram\.com/i.test(url)) {
+    args.push('-f', '{username}_{post_date:%Y-%m-%d}_{post_shortcode}_{num:>02}.{extension}');
+  }
   args.push(...cookieArgs(cookies, cookieFile));
   args.push(url);
   return args;
@@ -84,7 +89,7 @@ function download(url, opts, onEvent) {
   const tool = pickTool(url, opts.mode || 'auto');
 
   let cmd, args;
-  if (tool === 'ytdlp') { cmd = YTDLP; args = ytdlpArgs(url, outDir, opts.cookies, opts.cookieFile); }
+  if (tool === 'ytdlp') { cmd = YTDLP; args = ytdlpArgs(url, outDir, opts.cookies, opts.cookieFile, opts.thumbnail); }
   else { cmd = getPython(); args = gallerydlArgs(url, outDir, opts.cookies, opts.cookieFile); }
 
   onEvent({ type: 'start', tool, url });
