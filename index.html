@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="styles.css" />
+  <title>받냥이</title>
+</head>
+<body>
+  <header>
+    <h1>🐾 받냥이</h1>
+    <p class="sub">URL 붙여넣고 다운로드. 영상·이미지 알아서 정리해서 받아요.</p>
+  </header>
+
+  <section class="input-row">
+    <input id="url" type="text" placeholder="여기에 링크 붙여넣기 (유튜브 · 인스타 · imgur ...)" autofocus />
+    <select id="mode" title="받는 방식">
+      <option value="auto">자동</option>
+      <option value="video">영상</option>
+      <option value="image">이미지</option>
+    </select>
+    <button id="go">다운로드</button>
+  </section>
+
+  <section class="folder-row">
+    <span class="label">저장 폴더:</span>
+    <span id="outdir" class="path">…</span>
+    <button id="pick" class="ghost">변경</button>
+    <button id="open" class="ghost">폴더 열기</button>
+  </section>
+
+  <ul id="tasks"></ul>
+
+  <script src="renderer.js"></script>
+</body>
+</html>

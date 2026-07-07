@@ -1,0 +1,13 @@
+{
+  "name": "downcat",
+  "version": "0.1.0",
+  "description": "받냥이 - URL 붙여넣으면 영상/이미지를 폴더로 정리해 받는 바탕화면 다운로더",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dl": "node engine.js"
+  },
+  "devDependencies": {
+    "electron": "^32.0.0"
+  }
+}
