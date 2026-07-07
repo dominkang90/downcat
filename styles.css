@@ -6,11 +6,12 @@ body {
 header h1 { margin: 0; font-size: 22px; }
 .sub { margin: 4px 0 16px; color: #9aa2b1; font-size: 13px; }
 
-.input-row { display: flex; gap: 8px; margin-bottom: 10px; }
-#url { flex: 1; padding: 11px 13px; border-radius: 9px; border: 1px solid #2c313d;
-  background: #1c1f28; color: #e7e9ee; font-size: 14px; }
+.input-row { margin-bottom: 8px; }
+#url { width: 100%; padding: 11px 13px; border-radius: 9px; border: 1px solid #2c313d;
+  background: #1c1f28; color: #e7e9ee; font-size: 14px; resize: vertical; font-family: inherit; }
 #url:focus { outline: none; border-color: #5b8cff; }
-#mode { border-radius: 9px; border: 1px solid #2c313d; background: #1c1f28; color: #e7e9ee; padding: 0 8px; }
+.action-row { display: flex; gap: 8px; margin-bottom: 10px; }
+#mode { border-radius: 9px; border: 1px solid #2c313d; background: #1c1f28; color: #e7e9ee; padding: 0 10px; }
 button { cursor: pointer; border: none; border-radius: 9px; font-size: 14px; }
 #go { background: #5b8cff; color: #fff; padding: 11px 18px; font-weight: 600; }
 #go:hover { background: #6f9bff; }
@@ -23,6 +24,7 @@ button { cursor: pointer; border: none; border-radius: 9px; font-size: 14px; }
 .cookie-row { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #9aa2b1; margin-bottom: 16px; }
 .cookie-row label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
 .cookie-row select { background: #1c1f28; color: #cfd4de; border: 1px solid #2c313d; border-radius: 7px; padding: 3px 6px; }
+.cookie-row .hint { cursor: help; color: #6f9bff; }
 
 ul#tasks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
 .task { background: #1c1f28; border: 1px solid #2c313d; border-radius: 11px; padding: 12px 14px; }

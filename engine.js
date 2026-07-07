@@ -40,8 +40,16 @@ function pickTool(url, mode) {
   return IMAGE_HOSTS.test(url) ? 'gallerydl' : 'ytdlp'; // auto
 }
 
-// yt-dlp 실행 인자 만들기. cookies = 브라우저 이름(chrome 등)이면 로그인 쿠키 사용.
-function ytdlpArgs(url, outDir, cookies) {
+// 로그인 쿠키 인자: 파일(cookies.txt)이 있으면 그걸 우선, 없으면 브라우저 자동.
+// 크롬은 앱 바운드 암호화 때문에 브라우저 자동이 안 되니 보통 파일을 쓴다.
+function cookieArgs(cookies, cookieFile) {
+  if (cookieFile) return ['--cookies', cookieFile];
+  if (cookies) return ['--cookies-from-browser', cookies];
+  return [];
+}
+
+// yt-dlp 실행 인자 만들기.
+function ytdlpArgs(url, outDir, cookies, cookieFile) {
   const ff = findFfmpeg();
   const args = [
     '--newline',
@@ -50,15 +58,15 @@ function ytdlpArgs(url, outDir, cookies) {
   ];
   if (ff !== null) args.push('-f', 'bv*+ba/b'); else args.push('-f', 'b');
   if (ff) args.push('--ffmpeg-location', ff);
-  if (cookies) args.push('--cookies-from-browser', cookies);
+  args.push(...cookieArgs(cookies, cookieFile));
   args.push(url);
   return args;
 }
 
 // gallery-dl 실행 인자 (python -m gallery_dl ...)
-function gallerydlArgs(url, outDir, cookies) {
+function gallerydlArgs(url, outDir, cookies, cookieFile) {
   const args = ['-m', 'gallery_dl', '-d', outDir];
-  if (cookies) args.push('--cookies-from-browser', cookies);
+  args.push(...cookieArgs(cookies, cookieFile));
   args.push(url);
   return args;
 }
@@ -76,8 +84,8 @@ function download(url, opts, onEvent) {
   const tool = pickTool(url, opts.mode || 'auto');
 
   let cmd, args;
-  if (tool === 'ytdlp') { cmd = YTDLP; args = ytdlpArgs(url, outDir, opts.cookies); }
-  else { cmd = getPython(); args = gallerydlArgs(url, outDir, opts.cookies); }
+  if (tool === 'ytdlp') { cmd = YTDLP; args = ytdlpArgs(url, outDir, opts.cookies, opts.cookieFile); }
+  else { cmd = getPython(); args = gallerydlArgs(url, outDir, opts.cookies, opts.cookieFile); }
 
   onEvent({ type: 'start', tool, url });
 
@@ -112,8 +120,9 @@ if (require.main === module) {
   const url = process.argv[2];
   const mode = process.argv[3] || 'auto';
   const cookies = process.argv[4] || null; // chrome|edge|firefox
-  if (!url) { console.error('사용법: node engine.js <URL> [auto|video|image] [chrome|edge|firefox]'); process.exit(2); }
-  download(url, { mode, cookies }, (e) => {
+  const cookieFile = process.env.COOKIEFILE || null; // cookies.txt 경로
+  if (!url) { console.error('사용법: node engine.js <URL> [auto|video|image] [chrome|edge|firefox]  (쿠키파일은 COOKIEFILE=경로)'); process.exit(2); }
+  download(url, { mode, cookies, cookieFile }, (e) => {
     if (e.type === 'progress' && e.percent != null) process.stdout.write(`\r진행률: ${e.percent}%   `);
     else if (e.type === 'progress' && e.files != null) process.stdout.write(`\r받은 파일: ${e.files}개   `);
     else if (e.type === 'start') console.log(`[${e.tool}] 시작: ${e.url}`);

@@ -13,7 +13,9 @@
   </header>
 
   <section class="input-row">
-    <input id="url" type="text" placeholder="여기에 링크 붙여넣기 (유튜브 · 인스타 · imgur ...)" autofocus />
+    <textarea id="url" rows="2" placeholder="여기에 링크 붙여넣기 · 여러 개면 줄바꿈으로 (유튜브 · 인스타 · imgur ...)" autofocus></textarea>
+  </section>
+  <section class="action-row">
     <select id="mode" title="받는 방식">
       <option value="auto">자동</option>
       <option value="video">영상</option>
@@ -30,12 +32,10 @@
   </section>
 
   <section class="cookie-row">
-    <label><input id="usecookie" type="checkbox" /> 브라우저 로그인 쿠키 사용 (인스타 등 로그인 필요한 곳)</label>
-    <select id="browser" title="로그인된 브라우저">
-      <option value="chrome">Chrome</option>
-      <option value="edge">Edge</option>
-      <option value="firefox">Firefox</option>
-    </select>
+    <label><input id="usecookie" type="checkbox" /> 로그인 쿠키 사용 (인스타 등)</label>
+    <button id="pickcookie" class="ghost">쿠키 파일 선택</button>
+    <span id="cookiename" class="path">없음</span>
+    <span class="hint" title="크롬 확장앱 'Get cookies.txt LOCALLY'로 로그인 후 cookies.txt를 내보내 여기서 고르세요.">ⓘ</span>
   </section>
 
   <ul id="tasks"></ul>
