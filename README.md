@@ -26,9 +26,16 @@ URL을 붙여넣으면 영상·이미지를 알아서 폴더로 정리해 받아
 - **`받냥이.bat` 더블클릭** (또는 `npm start`)
 - URL 붙여넣고 [다운로드]. 저장 폴더·화질 등은 ⚙ 설정에서 바꾼다.
 
-## 처음 한 번 준비
+## 🎁 처음 받는 사람은 (친구/새 컴퓨터)
+1. 깃헙 **Releases**에서 `DownCat-…-windows.zip`(완성품)을 받아 아무 폴더에 압축 해제
+2. `받냥이.bat` 더블클릭 — 끝. 유튜브 등 **영상 사이트는 바로 된다** (yt-dlp·ffmpeg 동봉)
+3. 인스타·핀터레스트 같은 **이미지 사이트도 쓰려면**: [python.org](https://www.python.org/downloads/)에서
+   python 설치(Add to PATH 체크) 후 터미널에서 `pip install gallery-dl`
+- ⚠️ 소스 코드 ZIP(Code→Download ZIP)은 개발자용 — 아래 "처음 한 번 준비"가 필요하다.
+
+## 처음 한 번 준비 (소스로 시작할 때)
 - `npm install` (electron 설치)
-- `bin/yt-dlp.exe` 자동/수동 배치, `pip install gallery-dl`
+- `bin/yt-dlp.exe` 수동 배치, `pip install gallery-dl`
 - (선택) 유튜브 1080p+ 고화질은 ⚙ 설정 → **ffmpeg 설치** 버튼으로 자동 설치.
 
 ## 로그인 (인스타 등)
