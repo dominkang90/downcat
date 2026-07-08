@@ -77,6 +77,9 @@ function gallerydlArgs(url, outDir, o) {
     // 파일명 보기 좋게: 계정_날짜_게시물코드_순번
     args.push('-f', '{username}_{post_date:%Y-%m-%d}_{post_shortcode}_{num:>02}.{extension}');
     if (o.stories) args.push('-o', 'include=posts,reels,stories,highlights'); // 스토리도 포함
+    // 인스타는 요청이 너무 빠르면 봇으로 보고 잠깐 막는다(429). 요청 사이에 3~6초 쉬어 사람처럼,
+    // 그래도 막히면(429) 60초 기다렸다 재시도 → "자꾸 막힘" 방지.
+    args.push('--sleep-request', '3.0-6.0', '--sleep-429', '60');
   }
   if (o.rateLimit) args.push('--limit-rate', o.rateLimit);
   args.push(...cookieArgs(o.cookies, o.cookieFile));
