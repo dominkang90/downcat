@@ -20,14 +20,16 @@ function findFfmpeg() {
 }
 
 // python 실제 exe 경로 찾기 (gallery-dl 실행용). shell 안 쓰려고 절대경로로.
+// 진짜 python이 없으면 null (MS스토어 가짜 python.exe는 스토어만 열리므로 제외).
 let _python;
 function getPython() {
-  if (_python) return _python;
+  if (_python !== undefined) return _python;
   try {
     const out = execFileSync('where', ['python'], { encoding: 'utf8' });
-    const exe = out.split(/\r?\n/).find(l => l.trim().toLowerCase().endsWith('.exe'));
-    _python = exe ? exe.trim() : 'python';
-  } catch { _python = 'python'; }
+    const exe = out.split(/\r?\n/).map(l => l.trim())
+      .find(l => l.toLowerCase().endsWith('.exe') && !/WindowsApps/i.test(l));
+    _python = exe || null;
+  } catch { _python = null; }
   return _python;
 }
 
@@ -111,7 +113,9 @@ function extractThumb(video) {
   if (ffDir === null) return Promise.resolve(null); // ffmpeg 없으면 아이콘으로 표시
   const ffmpeg = ffDir ? path.join(ffDir, 'ffmpeg.exe') : 'ffmpeg';
   fs.mkdirSync(THUMBS_DIR, { recursive: true });
-  const out = path.join(THUMBS_DIR, path.basename(video).replace(/\.[^.]+$/, '') + '.jpg');
+  // 전체 경로 해시를 붙여 다른 폴더의 같은 파일명끼리 안 겹치게
+  const hash = require('crypto').createHash('md5').update(video).digest('hex').slice(0, 8);
+  const out = path.join(THUMBS_DIR, path.basename(video).replace(/\.[^.]+$/, '') + '-' + hash + '.jpg');
   return new Promise((res) => {
     const { execFile } = require('child_process');
     execFile(ffmpeg, ['-y', '-ss', '1', '-i', video, '-frames:v', '1', '-vf', 'scale=128:-2', out],
@@ -133,7 +137,14 @@ function download(url, opts, onEvent) {
 
   let cmd, args;
   if (tool === 'ytdlp') { cmd = YTDLP; args = ytdlpArgs(url, outDir, opts); }
-  else { cmd = getPython(); args = gallerydlArgs(url, outDir, opts); }
+  else {
+    cmd = getPython(); args = gallerydlArgs(url, outDir, opts);
+    if (!cmd) { // 진짜 python 없음 → 스토어 창 대신 이유를 알려주고 바로 실패
+      const msg = '파이썬이 없어요 — python.org에서 설치 후 pip install gallery-dl';
+      onEvent({ type: 'error', line: msg });
+      return Promise.resolve({ ok: false, tool, code: -1, count: 0, bytes: 0, thumb: null, file: null, error: msg });
+    }
+  }
 
   onEvent({ type: 'start', tool, url });
   const startTime = Date.now();
@@ -141,6 +152,7 @@ function download(url, opts, onEvent) {
   return new Promise((resolve) => {
     const child = spawn(cmd, args, { windowsHide: true, signal: opts.signal });
     const jobFiles = []; let newCount = 0; // 이 작업의 출력에서 직접 모은 파일 목록
+    let noModule = false; // 'No module named gallery_dl' 감지
     const handle = (buf, isErr) => {
       for (const line of buf.toString().split(/\r?\n/)) {
         if (!line.trim()) continue;
@@ -167,6 +179,7 @@ function download(url, opts, onEvent) {
             continue;
           }
         }
+        if (/No module named/i.test(line)) noModule = true;
         onEvent({ type: 'log', line, isErr });
       }
     };
@@ -195,6 +208,7 @@ function download(url, opts, onEvent) {
       const video = all.find(p => VID_RE.test(p));
       if (!thumb && video) thumb = await extractThumb(video);
       const result = { ok: code === 0 && !canceled, tool, code, canceled, count: all.length, bytes, thumb, file: all[0] || null };
+      if (!result.ok && noModule) result.error = 'gallery-dl이 없어요 — 터미널에서 pip install gallery-dl';
       onEvent({ type: 'done', ...result });
       resolve(result);
     });

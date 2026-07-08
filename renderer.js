@@ -4,13 +4,13 @@ const tasksEl = $('tasks');
 
 // ── 상태 ──
 let taskList = [];      // {id,url,mode,status,count,bytes,thumb,tool}
-const els = {};         // id -> {el, bar, statusEl, thumbEl, subEl, rightEl}
+let els = {};           // id -> 카드 li (render마다 다시 채움)
 
 const LABELS = ['', '#e5484d', '#f2820c', '#f5c518', '#46a758', '#00b0c7', '#3b82f6', '#d6409f', '#9aa1ab'];
 let activeLabel = null; // 하단 색점 필터(null=전체)
 const fmtSize = (b) => !b ? '' : b > 1e9 ? (b / 1e9).toFixed(1) + ' GB' : b > 1e6 ? (b / 1e6).toFixed(1) + ' MB' : Math.max(1, Math.round(b / 1e3)) + ' KB';
 const siteOf = (u) => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return ''; } };
-const toFileUrl = (p) => encodeURI('file:///' + p.replace(/\\/g, '/')).replace(/#/g, '%23'); // #은 encodeURI가 안 바꿔서 직접
+const toFileUrl = (p) => encodeURI('file:///' + p.replace(/\\/g, '/')).replace(/#/g, '%23').replace(/&/g, '%26'); // #·&는 encodeURI가 안 바꿔서 직접
 const IMG_RE = /\.(jpe?g|png|webp|gif|bmp|avif)$/i;
 const STATUS_TEXT = { downloading: '받는 중…', queued: '대기 중', done: '완료 ✓', partial: '일부 받음 · 사이트가 막음', fail: '실패', canceled: '취소됨' };
 
@@ -65,7 +65,7 @@ async function renderGallery() {
     const tile = document.createElement('div');
     tile.className = 'tile'; tile.title = it.name;
     tile.innerHTML = it.isVideo ? `<div class="vthumb">🎬</div><div class="cap"></div>`
-      : `<img loading="lazy" src="${toFileUrl(it.path)}" /><div class="cap"></div>`;
+      : `<img loading="lazy" src="${toFileUrl(it.path)}" onerror="this.outerHTML='🎬'" /><div class="cap"></div>`;
     tile.querySelector('.cap').textContent = it.name;
     tile.onclick = () => window.api.showItem(it.path);
     grid.appendChild(tile);
@@ -75,7 +75,7 @@ async function renderGallery() {
 // ── 작업 카드 ──
 function cardHtml(t) {
   // 옛 기록에 영상 경로가 thumb으로 들어간 경우가 있어 이미지 파일일 때만 <img>로
-  const thumb = t.thumb && IMG_RE.test(t.thumb) ? `<img src="${toFileUrl(t.thumb)}" />` : '🎬';
+  const thumb = t.thumb && IMG_RE.test(t.thumb) ? `<img src="${toFileUrl(t.thumb)}" onerror="this.outerHTML='🎬'" />` : '🎬';
   return `
     <div class="thumb">${thumb}</div>
     <div class="info">
@@ -94,13 +94,14 @@ function cardHtml(t) {
 function fillCard(li, t) {
   li.className = 'task ' + t.status;
   li.querySelector('.title').textContent = t.url;
-  li.querySelector('.statusText').textContent = STATUS_TEXT[t.status] || '';
+  li.querySelector('.statusText').textContent = (STATUS_TEXT[t.status] || '') + (t.status === 'fail' && t.error ? ' · ' + t.error : '');
   li.querySelector('.cnt').textContent = t.count ? `🖼 ${t.count}p` : '';
   li.querySelector('.sz').textContent = t.bytes ? `⬇ ${fmtSize(t.bytes)}` : '';
   const bar = li.querySelector('.bar');
   bar.classList.toggle('indet', t.status === 'downloading' && !t._pct);
   if (t.status === 'done') bar.style.width = '100%';
   else if (t.status !== 'downloading') bar.style.width = t.count ? '100%' : '0';
+  else bar.style.width = (t._pct || 0) + '%'; // 검색/필터로 다시 그려도 진행바 유지
   // 오른쪽 버튼: 진행중=취소, 끝=폴더/다시받기
   const right = li.querySelector('.right'); right.innerHTML = '';
   if (t.status === 'downloading') {
@@ -163,6 +164,7 @@ function render() {
     : sort === 'status' ? (rank[a.status] - rank[b.status])
     : (b._seq - a._seq)); // recent
   tasksEl.innerHTML = '';
+  els = {}; // 화면에 있는 카드만 다시 등록 (지운 카드 참조가 안 쌓이게)
   for (const t of list) {
     const li = document.createElement('li');
     li.innerHTML = cardHtml(t);
@@ -201,7 +203,7 @@ async function runOne(t) {
   const r = await window.api.download(t.id, t.url, t.mode, useCookie, thumbnail)
     .catch(() => ({ ok: false, count: 0, bytes: 0 })); // IPC까지 죽어도 카드는 실패로 마감
   t.status = r.canceled ? 'canceled' : r.ok ? 'done' : (r.count > 0 ? 'partial' : 'fail');
-  t.count = r.count; t.bytes = r.bytes;
+  t.count = r.count; t.bytes = r.bytes; t.error = r.error;
   if (r.thumb) t.thumb = r.thumb; // 새 정보가 없으면 기존 썸네일·파일 유지 ('다시 받기'가 카드를 비우지 않게)
   if (r.file) t.file = r.file;
   if (els[t.id]) fillCard(els[t.id], t);
@@ -250,7 +252,7 @@ document.addEventListener('drop', (e) => {
 
 // 클립보드에서 자동 추가
 window.api.onClipboardUrl((url) => {
-  if (taskList.some(t => t.url === url && t.status === 'downloading')) return;
+  if (taskList.some(t => t.url === url && (t.status === 'downloading' || t.status === 'queued'))) return;
   addTask(url, $('mode').value);
 });
 

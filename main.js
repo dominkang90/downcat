@@ -11,7 +11,11 @@ const COOKIES_TXT = path.join(__dirname, 'cookies', 'cookies.txt');
 function loadJson(file, fallback) {
   try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return fallback; }
 }
-function saveJson(file, data) { fs.writeFileSync(file, JSON.stringify(data, null, 2)); }
+function saveJson(file, data) { // 임시파일에 쓰고 바꿔치기 — 쓰다 죽어도 원본이 안 깨짐
+  const tmp = file + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
+  fs.renameSync(tmp, file);
+}
 
 // 설정 한 덩어리로 관리(기본값 + 저장된 값 병합).
 const DEFAULTS = {
@@ -30,6 +34,12 @@ let settings = Object.assign({}, DEFAULTS, loadJson(CONFIG, {}));
 function saveCfg() { saveJson(CONFIG, settings); }
 let mainWin = null;
 const jobs = {}; // jobId -> AbortController (실행 중인 다운로드, 취소용)
+
+// 이중 실행 방지: 두 번 켜면 새 창 대신 기존 창을 앞으로 (기록 파일 서로 덮어쓰기 방지)
+if (!app.requestSingleInstanceLock()) app.quit();
+else app.on('second-instance', () => {
+  if (mainWin && !mainWin.isDestroyed()) { if (mainWin.isMinimized()) mainWin.restore(); mainWin.focus(); }
+});
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -169,12 +179,14 @@ ipcMain.handle('open-path', (e, p) => shell.showItemInFolder(p));
 // 갤러리: 저장폴더 안 이미지/영상을 최신순으로 모아 준다.
 const IMG_EXT = /\.(jpe?g|png|webp|gif|bmp|avif)$/i;
 const VID_EXT = /\.(mp4|webm|mkv|mov|avi|m4v)$/i;
-function walk(dir, out) {
+function walk(dir, out, budget) {
+  if (--budget.n < 0) return; // ponytail: 스캔 상한 — 거대 폴더를 저장폴더로 지정해도 UI가 안 멈추게. 넘치면 일부만 보임
   let entries;
   try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
   for (const ent of entries) {
+    if (--budget.n < 0) return;
     const full = path.join(dir, ent.name);
-    if (ent.isDirectory()) walk(full, out);
+    if (ent.isDirectory()) walk(full, out, budget);
     else if (IMG_EXT.test(ent.name) || VID_EXT.test(ent.name)) {
       let mtime = 0; try { mtime = fs.statSync(full).birthtimeMs; } catch {} // 로컬 생성시각(최신 다운로드순)
       out.push({ path: full, name: ent.name, isVideo: VID_EXT.test(ent.name), mtime });
@@ -183,7 +195,7 @@ function walk(dir, out) {
 }
 ipcMain.handle('list-gallery', () => {
   const out = [];
-  walk(settings.outDir, out);
+  walk(settings.outDir, out, { n: 20000 });
   out.sort((a, b) => b.mtime - a.mtime);
   return out.slice(0, 500); // ponytail: 최근 500개면 충분, 넘으면 페이지네이션
 });
@@ -255,7 +267,8 @@ ipcMain.handle('download', async (e, { jobId, url, mode, useCookie, thumbnail })
 
   const status = result.canceled ? 'canceled' : result.ok ? 'done' : (result.count > 0 ? 'partial' : 'fail');
   const record = { id: jobId, url, mode, tool: result.tool, status,
-    count: result.count, bytes: result.bytes, thumb: result.thumb, file: result.file, at: new Date().toISOString() };
+    count: result.count, bytes: result.bytes, thumb: result.thumb, file: result.file,
+    error: result.error, at: new Date().toISOString() };
   const tasks = loadJson(TASKS, []);
   tasks.unshift(record);
   saveJson(TASKS, tasks.slice(0, 500));
