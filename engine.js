@@ -70,9 +70,9 @@ function ytdlpArgs(url, outDir, o) {
   return args;
 }
 
-// gallery-dl 실행 인자 (python -m gallery_dl ...)
+// gallery-dl 실행 인자 (bin/gallery-dl.exe 또는 python -m gallery_dl 공용)
 function gallerydlArgs(url, outDir, o) {
-  const args = ['-m', 'gallery_dl', '-d', outDir];
+  const args = ['-d', outDir];
   if (/instagram\.com/i.test(url)) {
     // 파일명 보기 좋게: 계정_날짜_게시물코드_순번
     args.push('-f', '{username}_{post_date:%Y-%m-%d}_{post_shortcode}_{num:>02}.{extension}');
@@ -138,11 +138,16 @@ function download(url, opts, onEvent) {
   let cmd, args;
   if (tool === 'ytdlp') { cmd = YTDLP; args = ytdlpArgs(url, outDir, opts); }
   else {
-    cmd = getPython(); args = gallerydlArgs(url, outDir, opts);
-    if (!cmd) { // 진짜 python 없음 → 스토어 창 대신 이유를 알려주고 바로 실패
-      const msg = '파이썬이 없어요 — python.org에서 설치 후 pip install gallery-dl';
-      onEvent({ type: 'error', line: msg });
-      return Promise.resolve({ ok: false, tool, code: -1, count: 0, bytes: 0, thumb: null, file: null, error: msg });
+    args = gallerydlArgs(url, outDir, opts);
+    const gdlExe = path.join(BIN_DIR, 'gallery-dl.exe');
+    if (fs.existsSync(gdlExe)) { cmd = gdlExe; } // 동봉 실행파일 우선 — python 설치 불필요
+    else {
+      cmd = getPython(); args = ['-m', 'gallery_dl', ...args];
+      if (!cmd) { // 진짜 python 없음 → 스토어 창 대신 이유를 알려주고 바로 실패
+        const msg = 'gallery-dl이 없어요 — bin 폴더에 gallery-dl.exe를 넣거나 python 설치 후 pip install gallery-dl';
+        onEvent({ type: 'error', line: msg });
+        return Promise.resolve({ ok: false, tool, code: -1, count: 0, bytes: 0, thumb: null, file: null, error: msg });
+      }
     }
   }
 
