@@ -65,6 +65,7 @@ function ytdlpArgs(url, outDir, o) {
   if (ff) args.push('--ffmpeg-location', ff);
   if (o.thumbnail) args.push('--write-thumbnail');
   if (o.rateLimit) args.push('--limit-rate', o.rateLimit);
+  if (o.referer) args.push('--referer', o.referer); // 야스닷컴 계열: 이 헤더 없으면 서버가 막는다
   args.push(...cookieArgs(o.cookies, o.cookieFile));
   args.push(url);
   return args;
@@ -126,16 +127,37 @@ function extractThumb(video) {
   });
 }
 
+// 야스닷컴 계열 CMS: 영상 진짜 주소를 페이지 JS `sourceUrl = "..."` 변수에 숨겨둔다.
+// yt-dlp는 페이지만 봐선 못 찾으니, 페이지를 받아 그 주소를 뽑고 referer를 붙여 넘긴다.
+// URL에 _Action= 이 있는 게 이 CMS의 표시 — 유튜브·인스타 같은 일반 사이트는 안 걸린다.
+const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36';
+async function resolveEmbeddedSource(url) {
+  if (!/[?&]_Action=/i.test(url)) return null;
+  let html;
+  try {
+    const res = await fetch(url, { headers: { 'User-Agent': BROWSER_UA } });
+    html = await res.text();
+  } catch { return null; }
+  const m = html.match(/\bsourceUrl\s*=\s*"([^"]+)"/); // const sourceUrl = "https:\/\/..."
+  if (!m) return null;
+  const src = m[1].replace(/\\\//g, '/'); // \/ 이스케이프 풀기
+  if (!/^https?:\/\//i.test(src)) return null;
+  return { url: src, referer: new URL(url).origin + '/' };
+}
+
 /**
  * URL 하나를 받는다.
  * onEvent({type, percent?, line?, code?}) 로 진행 상황을 알려준다.
  * 반환: Promise -> {ok, tool, code}
  */
-function download(url, opts, onEvent) {
+async function download(url, opts, onEvent) {
   opts = opts || {};
   onEvent = onEvent || (() => {});
   const outDir = opts.outDir || path.join(__dirname, 'downloads');
   fs.mkdirSync(outDir, { recursive: true });
+  // 야스닷컴 계열이면 페이지 속 진짜 주소로 바꾸고 referer를 켠다
+  const resolved = await resolveEmbeddedSource(url);
+  if (resolved) { url = resolved.url; opts = { ...opts, referer: resolved.referer }; }
   const tool = pickTool(url, opts.mode || 'auto');
 
   let cmd, args;
