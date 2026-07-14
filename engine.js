@@ -53,17 +53,23 @@ function cookieArgs(cookies, cookieFile) {
 // yt-dlp 실행 인자 만들기. o.thumbnail=영상썸네일, o.ytHeight=최대 세로해상도(1080 등).
 function ytdlpArgs(url, outDir, o) {
   const ff = findFfmpeg();
+  const prefix = o.outputPrefix ? `${o.outputPrefix} ` : '';
   const args = [
     '--newline',
     '--progress-template', 'DLPCT:%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s',
     // 받은(또는 이미 있던) 파일의 최종 경로를 한 줄씩 찍게 한다 → 집계가 옆 작업과 안 섞임
     '--print', 'after_move:DCFILE:%(filepath)s', '--no-simulate',
-    '-o', path.join(outDir, '%(extractor)s', '%(uploader)s', '%(title)s [%(id)s].%(ext)s'),
+    '-o', path.join(outDir, '%(extractor)s', '%(uploader)s', `${prefix}%(title)s [%(id)s].%(ext)s`),
   ];
   const h = o.ytHeight ? `[height<=${o.ytHeight}]` : '';
   if (ff !== null) args.push('-f', `bv*${h}+ba/b${h}/b`); else args.push('-f', `b${h}/b`);
   if (ff) args.push('--ffmpeg-location', ff);
   if (o.thumbnail) args.push('--write-thumbnail');
+  if (o.polite) args.push(
+    '-t', 'sleep',
+    '--retries', '3', '--fragment-retries', '3',
+    '--retry-sleep', 'http:exp=5:60', '--retry-sleep', 'fragment:exp=5:60',
+  );
   if (o.rateLimit) args.push('--limit-rate', o.rateLimit);
   if (o.referer) args.push('--referer', o.referer); // 야스닷컴 계열: 이 헤더 없으면 서버가 막는다
   args.push(...cookieArgs(o.cookies, o.cookieFile));
@@ -129,20 +135,62 @@ function extractThumb(video) {
 
 // 야스닷컴 계열 CMS: 영상 진짜 주소를 페이지 JS `sourceUrl = "..."` 변수에 숨겨둔다.
 // yt-dlp는 페이지만 봐선 못 찾으니, 페이지를 받아 그 주소를 뽑고 referer를 붙여 넘긴다.
-// URL에 _Action= 이 있는 게 이 CMS의 표시 — 유튜브·인스타 같은 일반 사이트는 안 걸린다.
+// 대상 호스트의 _Action=items 페이지만 처리 — 유튜브·인스타 같은 일반 사이트는 안 걸린다.
 const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36';
-async function resolveEmbeddedSource(url) {
-  if (!/[?&]_Action=/i.test(url)) return null;
+function isYasCmsUrl(url) {
+  try { return /^yasyadong\d*\.tv$/i.test(new URL(url).hostname.replace(/^www\./, '')); }
+  catch { return false; }
+}
+
+async function resolveEmbeddedSource(url, signal) {
+  if (!isYasCmsUrl(url) || !/[?&]_Action=items(?:&|$)/i.test(url)) return null;
   let html;
   try {
-    const res = await fetch(url, { headers: { 'User-Agent': BROWSER_UA } });
+    const timeout = AbortSignal.timeout(15000);
+    const res = await fetch(url, { headers: { 'User-Agent': BROWSER_UA }, signal: signal ? AbortSignal.any([signal, timeout]) : timeout });
+    if (!res.ok) return { error: `페이지 연결 실패: HTTP ${res.status}` };
     html = await res.text();
-  } catch { return null; }
+  } catch (err) {
+    const reason = (err.cause && err.cause.code) || err.code || err.message;
+    return { error: `페이지 연결 실패: ${reason}` };
+  }
   const m = html.match(/\bsourceUrl\s*=\s*"([^"]+)"/); // const sourceUrl = "https:\/\/..."
   if (!m) return null;
   const src = m[1].replace(/\\\//g, '/'); // \/ 이스케이프 풀기
   if (!/^https?:\/\//i.test(src)) return null;
-  return { url: src, referer: new URL(url).origin + '/' };
+  const page = new URL(url);
+  const itemId = page.searchParams.get('items_id');
+  const outputPrefix = /^\d+$/.test(itemId || '') ? `${page.hostname}-${itemId}` : '';
+  return { url: src, referer: page.origin + '/', outputPrefix };
+}
+
+// 야스닷컴 계열 목록 페이지(대문·index·hot·best·검색 등)에서 영상 링크를 모두 뽑는다.
+// 영상 링크 형식: ?_Action=items&items_id=<번호> (href에선 &가 &amp;로 나옴).
+// items_id로 중복 제거해 절대 URL 배열로 돌려준다. 순수 함수라 저장된 HTML로 검증 가능.
+function extractItemLinks(html, baseUrl) {
+  const origin = new URL(baseUrl).origin;
+  const ids = new Set();
+  const out = [];
+  const re = /_Action=items&(?:amp;)?items_id=(\d+)/gi;
+  let m;
+  while ((m = re.exec(html))) {
+    if (ids.has(m[1])) continue;
+    ids.add(m[1]);
+    out.push(`${origin}/?_Action=items&items_id=${m[1]}`);
+  }
+  return out;
+}
+
+// 목록 페이지 URL 하나 → 그 안 영상 페이지 URL들. 목록이 아니면(또는 실패) 빈 배열.
+async function expandListing(url) {
+  if (!isYasCmsUrl(url)) return [];
+  let html;
+  try {
+    const res = await fetch(url, { headers: { 'User-Agent': BROWSER_UA }, signal: AbortSignal.timeout(15000) });
+    if (!res.ok) return [];
+    html = await res.text();
+  } catch { return []; }
+  return extractItemLinks(html, url);
 }
 
 /**
@@ -155,9 +203,17 @@ async function download(url, opts, onEvent) {
   onEvent = onEvent || (() => {});
   const outDir = opts.outDir || path.join(__dirname, 'downloads');
   fs.mkdirSync(outDir, { recursive: true });
+  if (isYasCmsUrl(url) && /[?&]_Action=items(?:&|$)/i.test(url)) opts = { ...opts, polite: true };
   // 야스닷컴 계열이면 페이지 속 진짜 주소로 바꾸고 referer를 켠다
-  const resolved = await resolveEmbeddedSource(url);
-  if (resolved) { url = resolved.url; opts = { ...opts, referer: resolved.referer }; }
+  const resolved = await resolveEmbeddedSource(url, opts.signal);
+  if (opts.signal && opts.signal.aborted) {
+    return { ok: false, tool: 'ytdlp', canceled: true, code: null, count: 0, bytes: 0, thumb: null, file: null };
+  }
+  if (resolved && resolved.error) {
+    onEvent({ type: 'error', line: resolved.error });
+    return { ok: false, tool: 'ytdlp', code: -1, count: 0, bytes: 0, thumb: null, file: null, error: resolved.error };
+  }
+  if (resolved) { url = resolved.url; opts = { ...opts, referer: resolved.referer, outputPrefix: resolved.outputPrefix }; }
   const tool = pickTool(url, opts.mode || 'auto');
 
   let cmd, args;
@@ -245,7 +301,7 @@ async function download(url, opts, onEvent) {
   });
 }
 
-module.exports = { download, pickTool };
+module.exports = { download, pickTool, expandListing, extractItemLinks, resolveEmbeddedSource, ytdlpArgs };
 
 // 터미널에서 직접 실행: node engine.js <URL> [auto|video|image]
 if (require.main === module) {

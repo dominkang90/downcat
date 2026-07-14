@@ -178,11 +178,11 @@ $('sort').onchange = render;
 $('filter').oninput = render;
 
 // ── 다운로드 실행 ──
-// 대기열: 동시에 parallel개(설정, 기본 2)만 받고 나머지는 '대기 중'으로 줄 세운다.
+// 대기열: 동시에 parallel개(설정, 기본 1)만 받고 나머지는 '대기 중'으로 줄 세운다.
 let seq = 1;
 const queue = []; let running = 0;
 async function pump() {
-  const max = (await window.api.getSettings()).parallel || 2;
+  const max = (await window.api.getSettings()).parallel || 1;
   while (running < max && queue.length) {
     const t = queue.shift();
     if (t.status !== 'queued') continue; // 대기 중에 취소된 작업은 건너뜀
@@ -209,17 +209,42 @@ async function runOne(t) {
   if (els[t.id]) fillCard(els[t.id], t);
   if (t.status === 'done' && (await window.api.getSettings()).autoRemove) removeCard(t); // 설정: 완료 자동 제거
 }
-function addTask(url, mode) {
-  const t = { id: Date.now() + '-' + Math.random().toString(36).slice(2, 6), url, mode, status: 'downloading', count: 0, bytes: 0, thumb: null, _seq: seq++ };
-  taskList.unshift(t); render();
-  startOne(t);
+function addTasks(urls, mode) {
+  const tasks = urls.map((url) => ({ id: crypto.randomUUID(), url, mode, status: 'queued', count: 0, bytes: 0, thumb: null, _pct: 0, _seq: seq++ }));
+  taskList.unshift(...tasks);
+  queue.push(...tasks);
+  render();
+  pump();
 }
-function start() {
+function addTask(url, mode) { addTasks([url], mode); }
+// 야스 계열 목록 페이지 판별: _Action=items(영상)면 아님, 다른 _Action이나 사이트 대문이면 목록.
+function isYasListing(url) {
+  try {
+    const u = new URL(url);
+    if (!/^yasyadong\d*\.tv$/i.test(u.hostname.replace(/^www\./, ''))) return false;
+    const action = (u.searchParams.get('_Action') || '').toLowerCase();
+    if (action === 'items') return false;   // 영상 페이지 자체
+    if (action) return true;                // index/hot/best/actors/검색 등 목록
+    return u.pathname === '/' && !u.search; // 사이트 대문
+  } catch { return false; }
+}
+async function enqueueUrls(urls, mode) {
+  for (const url of urls) {
+    if (isYasListing(url)) {
+      const list = await window.api.expandListing(url).catch(() => []);
+      if (list.length) { addTasks(list, mode); continue; }
+      alert('사이트 연결이 제한되어 목록을 불러오지 못했습니다. 잠시 후 다시 시도하세요.');
+      continue;
+    }
+    addTask(url, mode);
+  }
+}
+async function start() {
   const urls = $('url').value.split(/\s+/).map(s => s.trim()).filter(Boolean);
   if (!urls.length) return;
   const mode = $('mode').value;
   $('url').value = '';
-  for (const url of urls) addTask(url, mode);
+  await enqueueUrls(urls, mode);
 }
 $('go').onclick = start;
 $('play').onclick = start;
@@ -247,13 +272,13 @@ document.addEventListener('dragover', (e) => e.preventDefault());
 document.addEventListener('drop', (e) => {
   e.preventDefault();
   const txt = e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text/plain');
-  for (const u of (txt || '').split(/\s+/).filter(s => /^https?:\/\//.test(s))) addTask(u, $('mode').value);
+  enqueueUrls((txt || '').split(/\s+/).filter(s => /^https?:\/\//.test(s)), $('mode').value);
 });
 
 // 클립보드에서 자동 추가
 window.api.onClipboardUrl((url) => {
   if (taskList.some(t => t.url === url && (t.status === 'downloading' || t.status === 'queued'))) return;
-  addTask(url, $('mode').value);
+  enqueueUrls([url], $('mode').value);
 });
 
 // 시작 시 저장된 작업 복원

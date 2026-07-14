@@ -24,7 +24,7 @@ const DEFAULTS = {
   ytHeight: 0,        // 0=최고화질, 1080/2160/4320
   stories: false,     // 인스타 스토리 포함
   autoClip: false,    // 클립보드에서 자동 추가
-  parallel: 2,        // 동시 다운로드 개수 (나머지는 대기)
+  parallel: 1,        // 안전한 기본값. 설정에서 늘릴 수 있음
   rateLimit: '',      // 최대 다운로드 속도 (''=무제한, '5M' 등)
   autoRemove: false,  // 완료된 작업 카드 자동 제거
   alwaysOnTop: false,
@@ -246,6 +246,9 @@ ipcMain.handle('pick-cookie-file', async (e) => {
   if (!r.canceled && r.filePaths[0]) { settings.cookieFile = r.filePaths[0]; saveCfg(); }
   return settings.cookieFile;
 });
+
+// 목록 페이지 → 영상 URL 배열 (야스 계열). 목록이 아니면 빈 배열.
+ipcMain.handle('expand-listing', (e, url) => engine.expandListing(url));
 
 // 다운로드: 진행 상황은 'job-event' 채널로, 최종 결과만 반환. jobId로 취소 가능.
 ipcMain.handle('download', async (e, { jobId, url, mode, useCookie, thumbnail }) => {

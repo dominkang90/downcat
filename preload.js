@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
   download: (jobId, url, mode, useCookie, thumbnail) => ipcRenderer.invoke('download', { jobId, url, mode, useCookie, thumbnail }),
+  expandListing: (url) => ipcRenderer.invoke('expand-listing', url),
   cancelJob: (jobId) => ipcRenderer.invoke('cancel-job', jobId),
   getTasks: () => ipcRenderer.invoke('get-tasks'),
   setTaskLabel: (id, label) => ipcRenderer.invoke('set-task-label', id, label),

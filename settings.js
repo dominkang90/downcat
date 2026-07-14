@@ -6,7 +6,7 @@ const $ = (id) => document.getElementById(id);
   $('outdir').textContent = s.outDir;
   $('ytHeight').value = String(s.ytHeight || 0);
   $('stories').checked = !!s.stories;
-  $('parallel').value = String(s.parallel || 2);
+  $('parallel').value = String(s.parallel || 1);
   $('rateLimit').value = s.rateLimit || '';
   $('autoRemove').checked = !!s.autoRemove;
   $('autoClip').checked = !!s.autoClip;
