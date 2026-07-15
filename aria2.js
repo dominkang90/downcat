@@ -6,9 +6,12 @@ const fs = require('fs');
 const path = require('path');
 
 const BIN_DIR = path.join(__dirname, 'bin');
-const ARIA2 = fs.existsSync(path.join(BIN_DIR, 'aria2c.exe'))
-  ? path.join(BIN_DIR, 'aria2c.exe')
-  : 'aria2c';
+
+// aria2c 실제 경로를 호출 시점에 찾는다(설치 직후에도 반영되게). 없으면 null → PATH 폴백.
+function resolveAria2() {
+  const local = path.join(BIN_DIR, 'aria2c.exe');
+  return fs.existsSync(local) ? local : null;
+}
 
 // aria2c 실행 인자. 순수 함수 — 테스트로 검증한다.
 // opts: connections(기본16), referer, userAgent, cookieFile, rateLimit
@@ -60,7 +63,8 @@ function commandExists() {
 function runAria2(url, outDir, opts, onEvent) {
   opts = opts || {};
   onEvent = onEvent || (() => {});
-  if (ARIA2 === 'aria2c' && !commandExists()) {
+  const exe = resolveAria2();
+  if (!exe && !commandExists()) {
     const msg = 'aria2c가 없어요 — 설정에서 자동 설치하거나 bin 폴더에 aria2c.exe를 넣어주세요';
     onEvent({ type: 'error', line: msg });
     return Promise.resolve({ ok: false, code: -1, canceled: false, error: msg });
@@ -68,7 +72,7 @@ function runAria2(url, outDir, opts, onEvent) {
   const args = aria2Args(url, outDir, opts);
   onEvent({ type: 'start', tool: 'aria2', url });
   return new Promise((resolve) => {
-    const child = spawn(ARIA2, args, { windowsHide: true, signal: opts.signal });
+    const child = spawn(exe || 'aria2c', args, { windowsHide: true, signal: opts.signal });
     const handle = (buf, isErr) => {
       // aria2 진행 표시는 \r로 갱신되니 \r·\n 둘 다로 쪼갠다
       for (const line of buf.toString().split(/[\r\n]+/)) {
@@ -83,7 +87,7 @@ function runAria2(url, outDir, opts, onEvent) {
     child.on('error', (e) => {
       if (opts.signal && opts.signal.aborted) { resolve({ ok: false, code: null, canceled: true }); return; }
       onEvent({ type: 'error', line: String(e) });
-      resolve({ ok: false, code: -1, error: String(e) });
+      resolve({ ok: false, code: -1, canceled: false, error: String(e) });
     });
     child.on('close', (code) => {
       const canceled = !!(opts.signal && opts.signal.aborted);
