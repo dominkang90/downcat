@@ -27,4 +27,17 @@ assert.strictEqual(p.eta, '2m34s');
 assert.strictEqual(parseAria2Progress('some log line'), null);
 assert.strictEqual(parseAria2Progress(''), null);
 
-console.log('ok - aria2Args, parseAria2Progress');
+// 3) 라우팅: 직링 파일 → aria2, 미디어 페이지 → ytdlp, 이미지 사이트 → gallerydl
+const { pickTool, isDirectFileUrl } = require('./engine');
+assert.strictEqual(pickTool('https://cdn.com/setup.exe', 'auto'), 'aria2');
+assert.strictEqual(pickTool('https://cdn.com/movie.mp4', 'auto'), 'aria2');
+assert.strictEqual(pickTool('https://www.youtube.com/watch?v=abc', 'auto'), 'ytdlp');
+assert.strictEqual(pickTool('https://instagram.com/p/abc', 'auto'), 'gallerydl');
+assert.strictEqual(pickTool('https://cdn.com/stream.m3u8', 'auto'), 'ytdlp'); // m3u8은 yt-dlp가 조립
+assert.strictEqual(pickTool('https://cdn.com/x.zip', 'video'), 'ytdlp');      // 강제 모드가 우선
+assert.strictEqual(pickTool('https://any.com/thing', 'file'), 'aria2');       // 강제 file
+assert(isDirectFileUrl('https://cdn.com/a/b/file.pdf'));
+assert(!isDirectFileUrl('https://cdn.com/page'));
+assert(!isDirectFileUrl('not a url'));
+
+console.log('ok - aria2Args, parseAria2Progress, routing');
