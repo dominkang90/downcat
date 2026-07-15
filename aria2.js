@@ -63,7 +63,7 @@ function runAria2(url, outDir, opts, onEvent) {
   if (ARIA2 === 'aria2c' && !commandExists()) {
     const msg = 'aria2c가 없어요 — 설정에서 자동 설치하거나 bin 폴더에 aria2c.exe를 넣어주세요';
     onEvent({ type: 'error', line: msg });
-    return Promise.resolve({ ok: false, code: -1, error: msg });
+    return Promise.resolve({ ok: false, code: -1, canceled: false, error: msg });
   }
   const args = aria2Args(url, outDir, opts);
   onEvent({ type: 'start', tool: 'aria2', url });
@@ -81,7 +81,7 @@ function runAria2(url, outDir, opts, onEvent) {
     child.stdout.on('data', b => handle(b, false));
     child.stderr.on('data', b => handle(b, true));
     child.on('error', (e) => {
-      if (opts.signal && opts.signal.aborted) { resolve({ ok: false, canceled: true }); return; }
+      if (opts.signal && opts.signal.aborted) { resolve({ ok: false, code: null, canceled: true }); return; }
       onEvent({ type: 'error', line: String(e) });
       resolve({ ok: false, code: -1, error: String(e) });
     });
