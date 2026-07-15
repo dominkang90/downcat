@@ -163,6 +163,36 @@ ipcMain.handle('install-ffmpeg', async () => {
   }
 });
 
+// aria2c (일반 파일 가속 다운로드용) 상태 확인 / 자동 설치 — ffmpeg 패턴과 동일
+const ARIA2C = path.join(__dirname, 'bin', 'aria2c.exe');
+ipcMain.handle('aria2-status', () => fs.existsSync(ARIA2C));
+ipcMain.handle('install-aria2', async () => {
+  const { execFile } = require('child_process');
+  const url = 'https://github.com/aria2/aria2/releases/download/release-1.37.0/aria2-1.37.0-win-64bit-build1.zip';
+  const tmpDir = path.join(app.getPath('temp'), 'downcat-aria2');
+  const zip = tmpDir + '.zip';
+  try {
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+    const ps = `$ErrorActionPreference='Stop'; Invoke-WebRequest -Uri '${url}' -OutFile '${zip}'; Expand-Archive -Path '${zip}' -DestinationPath '${tmpDir}' -Force`;
+    await new Promise((res, rej) => execFile('powershell', ['-NoProfile', '-Command', ps], { maxBuffer: 1 << 28 }, (e) => e ? rej(e) : res()));
+    let found = null;
+    (function walkFor(d) {
+      for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+        const f = path.join(d, e.name);
+        if (e.isDirectory()) walkFor(f);
+        else if (!found && e.name.toLowerCase() === 'aria2c.exe') found = f;
+      }
+    })(tmpDir);
+    if (!found) throw new Error('압축 안에서 aria2c.exe를 못 찾음');
+    fs.mkdirSync(path.dirname(ARIA2C), { recursive: true });
+    fs.copyFileSync(found, ARIA2C);
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); fs.rmSync(zip, { force: true }); } catch {}
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: String(err && err.message || err) };
+  }
+});
+
 // 설정 창
 let settingsWin = null;
 ipcMain.handle('open-settings', () => {

@@ -36,10 +36,21 @@ function getPython() {
 // 이미지 갤러리 사이트는 gallery-dl로. 나머지(영상 포함, 모르는 곳)는 yt-dlp로.
 const IMAGE_HOSTS = /(?:instagram\.com|pinterest\.|pixiv\.net|hitomi\.la|nhentai\.|e-hentai\.|exhentai\.|danbooru\.|gelbooru\.|deviantart\.com|tumblr\.com|imgur\.com|flickr\.com|artstation\.com|weibo\.)/i;
 
+// 직접 다운로드 링크(압축·설치·문서·미디어 직링)인지. 이런 건 aria2로 가속 다운로드한다.
+// m3u8/mpd는 일부러 뺐다 — 조각 스트림이라 yt-dlp가 조립해야 한다.
+const DIRECT_FILE_RE = /\.(zip|7z|rar|tar|gz|tgz|bz2|xz|exe|msi|dmg|pkg|apk|iso|img|bin|pdf|epub|mobi|mp3|flac|wav|mp4|mkv|webm|mov|m4v|avi|docx?|xlsx?|pptx?)$/i;
+function isDirectFileUrl(url) {
+  try { return DIRECT_FILE_RE.test(new URL(url).pathname); }
+  catch { return false; }
+}
+
 function pickTool(url, mode) {
   if (mode === 'video') return 'ytdlp';
   if (mode === 'image') return 'gallerydl';
-  return IMAGE_HOSTS.test(url) ? 'gallerydl' : 'ytdlp'; // auto
+  if (mode === 'file') return 'aria2';                 // 확장/사용자가 파일로 지정
+  return IMAGE_HOSTS.test(url) ? 'gallerydl'
+    : isDirectFileUrl(url) ? 'aria2'                   // 직링 파일은 가속
+    : 'ytdlp';                                         // 나머지(영상 페이지·모르는 곳)
 }
 
 // 로그인 쿠키 인자: 파일(cookies.txt)이 있으면 그걸 우선, 없으면 브라우저 자동.
@@ -216,6 +227,24 @@ async function download(url, opts, onEvent) {
   if (resolved) { url = resolved.url; opts = { ...opts, referer: resolved.referer, outputPrefix: resolved.outputPrefix }; }
   const tool = pickTool(url, opts.mode || 'auto');
 
+  // aria2 경로: aria2.js에 위임하고, 파일 집계는 아래 yt-dlp 폴백과 같은 scanNew를 재사용한다(DRY).
+  if (tool === 'aria2') {
+    const startTime = Date.now();
+    const r = await require('./aria2').runAria2(url, outDir, {
+      connections: opts.connections, referer: opts.referer, userAgent: opts.userAgent,
+      cookieFile: opts.cookieFile, rateLimit: opts.rateLimit, signal: opts.signal,
+    }, onEvent);
+    const canceled = !!(opts.signal && opts.signal.aborted) || !!r.canceled;
+    const acc = { count: 0, bytes: 0, thumb: null, any: null, video: null };
+    // ponytail: 이어받기(--continue)로 새 파일이 안 생기면 count 0일 수 있음. 새 다운로드는 정상 집계.
+    if (r.ok) scanNew(outDir, startTime - 2000, acc);
+    if (!acc.thumb && acc.video) acc.thumb = await extractThumb(acc.video);
+    const result = { ok: r.ok, tool: 'aria2', code: r.code, canceled,
+      count: acc.count, bytes: acc.bytes, thumb: acc.thumb, file: acc.any, error: r.error };
+    onEvent({ type: 'done', ...result });
+    return result;
+  }
+
   let cmd, args;
   if (tool === 'ytdlp') { cmd = YTDLP; args = ytdlpArgs(url, outDir, opts); }
   else {
@@ -301,7 +330,7 @@ async function download(url, opts, onEvent) {
   });
 }
 
-module.exports = { download, pickTool, expandListing, extractItemLinks, resolveEmbeddedSource, ytdlpArgs };
+module.exports = { download, pickTool, isDirectFileUrl, expandListing, extractItemLinks, resolveEmbeddedSource, ytdlpArgs };
 
 // 터미널에서 직접 실행: node engine.js <URL> [auto|video|image]
 if (require.main === module) {
