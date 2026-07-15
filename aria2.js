@@ -50,6 +50,48 @@ function parseAria2Progress(line) {
   };
 }
 
-module.exports = { aria2Args, parseAria2Progress };
+// aria2c가 PATH에도 없고 bin에도 없을 때 확인용
+function commandExists() {
+  try { execFileSync('aria2c', ['--version'], { stdio: 'ignore' }); return true; }
+  catch { return false; }
+}
+
+// 실제 실행. resolve -> {ok, code, canceled}. 파일 집계는 engine이 scanNew로 한다.
+function runAria2(url, outDir, opts, onEvent) {
+  opts = opts || {};
+  onEvent = onEvent || (() => {});
+  if (ARIA2 === 'aria2c' && !commandExists()) {
+    const msg = 'aria2c가 없어요 — 설정에서 자동 설치하거나 bin 폴더에 aria2c.exe를 넣어주세요';
+    onEvent({ type: 'error', line: msg });
+    return Promise.resolve({ ok: false, code: -1, error: msg });
+  }
+  const args = aria2Args(url, outDir, opts);
+  onEvent({ type: 'start', tool: 'aria2', url });
+  return new Promise((resolve) => {
+    const child = spawn(ARIA2, args, { windowsHide: true, signal: opts.signal });
+    const handle = (buf, isErr) => {
+      // aria2 진행 표시는 \r로 갱신되니 \r·\n 둘 다로 쪼갠다
+      for (const line of buf.toString().split(/[\r\n]+/)) {
+        if (!line.trim()) continue;
+        const p = parseAria2Progress(line);
+        if (p) { onEvent({ type: 'progress', ...p }); continue; }
+        onEvent({ type: 'log', line, isErr });
+      }
+    };
+    child.stdout.on('data', b => handle(b, false));
+    child.stderr.on('data', b => handle(b, true));
+    child.on('error', (e) => {
+      if (opts.signal && opts.signal.aborted) { resolve({ ok: false, canceled: true }); return; }
+      onEvent({ type: 'error', line: String(e) });
+      resolve({ ok: false, code: -1, error: String(e) });
+    });
+    child.on('close', (code) => {
+      const canceled = !!(opts.signal && opts.signal.aborted);
+      resolve({ ok: code === 0 && !canceled, code, canceled });
+    });
+  });
+}
+
+module.exports = { aria2Args, parseAria2Progress, runAria2 };
 
 // 📌 이 코드가 하는 일: `aria2Args`는 "aria2한테 넘길 명령 조각들"을 배열로 만든다(16조각으로 나눠 이어받기 하며 받아라). `parseAria2Progress`는 aria2가 찍는 한 줄에서 "몇 %·속도·남은시간"만 콕 뽑는다.

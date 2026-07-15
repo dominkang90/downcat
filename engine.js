@@ -227,6 +227,24 @@ async function download(url, opts, onEvent) {
   if (resolved) { url = resolved.url; opts = { ...opts, referer: resolved.referer, outputPrefix: resolved.outputPrefix }; }
   const tool = pickTool(url, opts.mode || 'auto');
 
+  // aria2 경로: aria2.js에 위임하고, 파일 집계는 아래 yt-dlp 폴백과 같은 scanNew를 재사용한다(DRY).
+  if (tool === 'aria2') {
+    const startTime = Date.now();
+    const r = await require('./aria2').runAria2(url, outDir, {
+      connections: opts.connections, referer: opts.referer, userAgent: opts.userAgent,
+      cookieFile: opts.cookieFile, rateLimit: opts.rateLimit, signal: opts.signal,
+    }, onEvent);
+    const canceled = !!(opts.signal && opts.signal.aborted) || !!r.canceled;
+    const acc = { count: 0, bytes: 0, thumb: null, any: null, video: null };
+    // ponytail: 이어받기(--continue)로 새 파일이 안 생기면 count 0일 수 있음. 새 다운로드는 정상 집계.
+    if (r.ok) scanNew(outDir, startTime - 2000, acc);
+    if (!acc.thumb && acc.video) acc.thumb = await extractThumb(acc.video);
+    const result = { ok: r.ok, tool: 'aria2', code: r.code, canceled,
+      count: acc.count, bytes: acc.bytes, thumb: acc.thumb, file: acc.any, error: r.error };
+    onEvent({ type: 'done', ...result });
+    return result;
+  }
+
   let cmd, args;
   if (tool === 'ytdlp') { cmd = YTDLP; args = ytdlpArgs(url, outDir, opts); }
   else {
