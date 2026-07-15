@@ -1,6 +1,6 @@
 # 받냥이 IDM화 기획서 — 가속 다운로드 + 브라우저 캡처 + 동영상 그랩
 
-작성: 2026-07-16 · 대상: `C:\Users\rkdtk\downcat` (받냥이 확장) · 기반: IDM 6.43 구조 분석
+작성: 2026-07-16 · 대상: `C:\Users\rkdtk\downcat` (받냥이 확장) · 기반: IDM 6.43 구조 분석 + FileCentipede 비교(§10 반영)
 
 ---
 
@@ -44,7 +44,7 @@ IDM 아키텍처(분석 + 공개 동작):
 - 스케줄러, 대역폭 시간대별 제한, 사이트 그래버 규칙 편집기.
 - 셸(우클릭 메뉴)·클립보드 확장자 가로채기 (받냥이 클립보드 감시로 대체 가능).
 - Firefox 확장 (Chromium 먼저, 나중에 얇은 델타로).
-- FTP/BitTorrent (aria2가 지원하지만 개인용 범위 밖).
+- FTP/BitTorrent 풀 클라이언트·시드(개인용 범위 밖). 단 **magnet 붙여넣기 다운로드는 aria2가 공짜로 지원** → 선택적 M5로 뺌(§8).
 
 ---
 
@@ -84,13 +84,16 @@ IDM 아키텍처(분석 + 공개 동작):
 ### 4.2 로컬 브리지 서버 (main.js에 추가, 신규)
 - **무엇**: 확장이 job을 던지는 창구. 받으면 렌더러에 "URL 자동 추가" 이벤트를 보냄(기존 `clipboard-url` 채널과 동일 흐름).
 - **어떻게**: Electron `app.whenReady` 시 `http.createServer`로 `127.0.0.1:47653`(고정 포트) 바인딩. `POST /add` JSON 수신. `X-Downcat-Token` 헤더가 저장된 토큰과 다르면 403.
-- **보안**: 루프백 전용 바인딩(외부 접근 불가) + 랜덤 토큰(설치 시 생성, 확장 옵션에 붙여넣기 or 최초 페어링). CORS는 확장 origin만 허용.
+- **보안**: 루프백 전용 바인딩(외부 접근 불가) + 랜덤 토큰(설치 시 생성, 확장 옵션에 붙여넣기 or 최초 페어링). CORS는 확장 origin만 허용. Private Network Access(PNA) 프리플라이트도 확장 origin만 통과.
 - **의존**: Node 내장 `http`. 새 npm 의존 없음.
+
+> **보안 트레이드오프 (FileCentipede·IDM 대비)**: FC와 IDM은 **네이티브 메시징**을 쓴다 — 열린 포트가 없어 로컬 다른 프로세스가 job을 못 던진다(더 안전). 로컬 HTTP는 포트가 열려 있어, 토큰이 없으면 로컬 악성 프로세스가 job을 넣을 수 있다. 개인용 + 토큰 + 루프백이면 실질 위험은 낮다고 판단해 **1차는 로컬 HTTP(단순)**. 나중에 강화가 필요하면 **네이티브 메시징 호스트(작은 stub이 명명 파이프로 실행 중 Electron에 전달)** 로 승격 — IDM의 `idmcchandler` 구조 그대로. 포트를 아예 안 여는 방식이라 가장 안전. (ponytail: 지금 필요 없는 배관은 안 만든다. 승격 경로만 명시.)
 
 ### 4.3 브라우저 확장 `extension/` (신규, MV3)
 - **파일**: `manifest.json`, `background.js`(service worker), `popup.html`/`popup.js`, `options.html`(토큰·포트 설정), `content.js`(동영상 감지 배지).
 - **다운로드 가로채기**: `chrome.downloads.onDeterminingFilename` 또는 우클릭 컨텍스트 메뉴("받냥이로 받기"). 가로챈 URL + `chrome.cookies.getAll(domain)` + 탭 referer + navigator UA를 브리지로 POST. (자동 가로채기는 기본 OFF, 컨텍스트 메뉴가 기본 — 브라우저 기본 다운로드와 안 싸우게.)
 - **동영상 감지**: `chrome.webRequest.onBeforeRequest`로 `.m3u8`/`.mpd`/`.mp4` 요청 수집 → 팝업/배지에 "이 동영상 받기" 목록. 클릭 시 그 페이지 URL(또는 스트림 URL)을 브리지로 전달, 받냥이가 yt-dlp로 처리.
+- **리소스 수집기 패널 (FileCentipede 벤치마크 — IDM보다 나은 부분)**: 팝업에 현재 페이지의 **미디어·이미지·오디오 목록**을 훑어 체크박스로 보여주고, 고른 것만 일괄 전달. 종류별로 알아서 라우팅 — 이미지 다수면 gallery-dl, 동영상이면 yt-dlp, 직링 파일이면 aria2. IDM의 "링크 전부 받기"보다 종류 인식·미리보기가 있어 정확. content.js가 `<img>/<video>/<audio>/<source>` DOM + webRequest 수집분을 합쳐 background에 보고.
 - **권한**: `downloads`, `cookies`, `webRequest`, `contextMenus`, `<all_urls>`(host_permissions). 최소로.
 - **의존**: 브리지 서버가 떠 있어야 함(받냥이 실행 중). 안 뜨면 "받냥이를 켜주세요" 안내.
 
@@ -137,9 +140,10 @@ IDM 아키텍처(분석 + 공개 동작):
 - **M1 — aria2 엔진**: `bin/aria2c.exe` 추가, `aria2.js` 래퍼, `pickTool` 분기, 유닛+스모크. (확장 없이 받냥이 창에 파일 직링 붙여넣어도 가속 다운로드 되게.)
 - **M2 — 로컬 브리지**: main.js에 HTTP 서버 + 토큰 + 렌더러 job 추가. curl로 검증.
 - **M3 — 확장(파일)**: MV3 뼈대, 컨텍스트 메뉴 "받냥이로 받기", 쿠키·referer·UA 배달. Chrome/Edge 로드 테스트.
-- **M4 — 확장(동영상)**: webRequest 스트림 감지 + 팝업 목록 + yt-dlp 전달.
+- **M4 — 확장(동영상 + 리소스 수집기)**: webRequest 스트림 감지 + 팝업 "이 동영상 받기" + **리소스 수집기 패널**(미디어·이미지·오디오 일괄 선택, 종류별 라우팅).
+- **M5 — 선택(공짜에 가까운 보너스)**: aria2가 이미 지원하는 **magnet 붙여넣기 다운로드** + **체크섬 검증**(`--checksum`, 페이지가 해시 줄 때). 필요할 때만.
 
-각 마일스톤은 독립 검증 가능. M1만으로도 "빠른 다운로더"로 유용.
+각 마일스톤은 독립 검증 가능. M1만으로도 "빠른 다운로더"로 유용. M5는 언제든 뺄 수 있음(YAGNI).
 
 ---
 
@@ -148,3 +152,21 @@ IDM 아키텍처(분석 + 공개 동작):
 - 확장 자동 다운로드 가로채기: 기본 OFF(컨텍스트 메뉴 방식) 제안 — 브라우저 기본 다운로드와 충돌·놀람 방지. OK?
 - 브리지 포트 47653 고정 vs 랜덤+확장에 표시: 고정 제안(단순). OK?
 - aria2 동시 연결 수 기본값 16 제안(IDM 32는 서버 부담·차단 위험). OK?
+
+---
+
+## 10. FileCentipede 비교 및 반영 (기획 고도화 근거)
+
+FileCentipede(filecxx/FileCentipede) = C++/Qt + libtorrent 올인원 다운로더. HTTP(S)/FTP(S)/SFTP/BitTorrent/magnet/ed2k/m3u8/WebDAV 지원. **주의: "소스 공개"라지만 핵심 엔진 의존 라이브러리는 독점** → 코드 가져다 쓸 순 없고, 설계 아이디어만 참고.
+
+| FC 기능 | IDM | 우리 결정 |
+|---|---|---|
+| CLI 백엔드로 **aria2/curl/wget/axel** 사용 | 자체 엔진 | ✅ **채택 근거 강화** — FC도 aria2 씀. 우리 aria2 래핑은 정석 |
+| **리소스 수집기 패널**(미디어·이미지·오디오 일괄) | 링크 전부 받기(약함) | ✅ **채택** — M4에 반영. 종류 인식·미리보기로 더 정확 |
+| 확장↔앱 = 네이티브 메시징(포트 안 엶) | 네이티브 메시징 | ⚠️ **트레이드오프 반영**(§4.2) — 1차 로컬 HTTP, 강화 시 네이티브 승격 |
+| m3u8 **AES-128 복호화**(SAMPLE-AES 미지원) | 지원 | ✅ 이미 커버 — yt-dlp가 동일 처리(SAMPLE-AES 한계도 동일) |
+| **magnet/torrent** 다운로드 | 없음 | ➕ **선택 M5** — aria2가 magnet 공짜 지원 |
+| 체크섬 검증 | 일부 | ➕ **선택 M5** — aria2 `--checksum` |
+| WebDAV/FTP/SSH 파일매니저·원격·시드박스 | 없음 | ❌ 개인용 범위 밖 |
+
+**결론**: FC에서 가져올 진짜 개선은 딱 두 개 — ① **리소스 수집기 패널**(M4 승격), ② **네이티브 메시징 보안 승격 경로**(명시만, 구현은 나중). 나머지(magnet·체크섬)는 aria2 덕에 거의 공짜라 선택 M5로. 큰 그림(받냥이 + aria2 + yt-dlp + 확장)은 안 바뀜 — FC가 오히려 aria2 백엔드로 우리 방향을 검증해줌.
