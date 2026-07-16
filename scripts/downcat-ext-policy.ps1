@@ -32,12 +32,30 @@ function Remove-ValueIfExists($key, $name) {
   if (Test-Path $key) { Remove-ItemProperty -Path $key -Name $name -ErrorAction SilentlyContinue }
 }
 
+# 강제설치 목록에서 우리 확장(데이터가 "<ID>;"로 시작) 항목을 제거한다.
+function Remove-ForceEntry($key, $extId) {
+  if (-not (Test-Path $key)) { return }
+  foreach ($n in (Get-Item $key).Property) {
+    $v = (Get-ItemProperty -Path $key -Name $n).$n
+    if ($v -like "$extId;*") { Remove-ItemProperty -Path $key -Name $n -ErrorAction SilentlyContinue }
+  }
+}
+
+# 강제설치 목록에 우리 항목을 넣는다. 목록 값 이름은 반드시 숫자("1","2"...)여야 크롬이 읽는다.
+function Set-ForceEntry($key, $extId, $data) {
+  New-Item -Path $key -Force | Out-Null
+  Remove-ForceEntry $key $extId                    # 중복 방지(재실행 대비)
+  $nums = (Get-Item $key).Property | Where-Object { $_ -match '^\d+$' } | ForEach-Object { [int]$_ }
+  $next = if ($nums) { (($nums | Measure-Object -Maximum).Maximum + 1) } else { 1 }
+  New-ItemProperty -Path $key -Name "$next" -Value $data -PropertyType String -Force | Out-Null
+}
+
 if ($Uninstall) {
-  # 강제설치 목록에서 우리 항목(이름=확장ID)만 제거 (HKLM + 옛 HKCU 둘 다)
-  Remove-ValueIfExists $ChromeForce $ExtId
-  Remove-ValueIfExists $EdgeForce   $ExtId
-  Remove-ValueIfExists $ChromeForceHKCU $ExtId
-  Remove-ValueIfExists $EdgeForceHKCU   $ExtId
+  # 강제설치 목록에서 우리 항목(데이터가 <ID>;로 시작)만 제거 (HKLM + 옛 HKCU 둘 다). 옛 ID-이름 값도 정리.
+  foreach ($k in @($ChromeForce, $EdgeForce, $ChromeForceHKCU, $EdgeForceHKCU)) {
+    Remove-ForceEntry $k $ExtId
+    Remove-ValueIfExists $k $ExtId   # 옛 버전이 ID를 값 이름으로 쓴 잔재 제거
+  }
   # managed 토큰 정책 키 제거 (HKLM + 옛 HKCU)
   foreach ($k in @($Chrome3p, $Edge3p, $Chrome3pHKCU, $Edge3pHKCU)) {
     if (Test-Path $k) { Remove-Item -Path $k -Recurse -Force -ErrorAction SilentlyContinue }
@@ -67,12 +85,9 @@ $xml = @"
 "@
 Set-Content -Path $xmlPath -Value $xml -Encoding UTF8
 
-# 강제설치 정책: 값 이름=확장ID, 데이터="<ID>;<update.xml file URL>"
+# 강제설치 정책: 데이터="<ID>;<update.xml file URL>". 값 이름은 숫자여야 크롬이 목록으로 인식.
 $forceVal = "$ExtId;$xmlUrl"
-foreach ($key in @($ChromeForce, $EdgeForce)) {
-  New-Item -Path $key -Force | Out-Null
-  New-ItemProperty -Path $key -Name $ExtId -Value $forceVal -PropertyType String -Force | Out-Null
-}
+foreach ($key in @($ChromeForce, $EdgeForce)) { Set-ForceEntry $key $ExtId $forceVal }
 
 # 토큰 자동 페어링(선택): config.json에서 읽거나 새로 만들어 managed 정책에 넣는다
 if ($ConfigPath) {
