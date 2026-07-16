@@ -30,6 +30,31 @@ assert.strictEqual(isAllowedOrigin('chrome-extension://abcd'), true);
 assert.strictEqual(isAllowedOrigin(undefined), true);
 assert.strictEqual(isAllowedOrigin('https://evil.com'), false);
 
+// 7) mode 'file'도 허용(확장 링크 우클릭 → aria2 가속)
+assert.strictEqual(parseAddBody(JSON.stringify({ url: 'https://ex.com/a', mode: 'file' })).job.mode, 'file');
+
+// 8) userAgent: 짧은 문자열만 통과, 512자 초과는 무시
+r = parseAddBody(JSON.stringify({ url: 'https://ex.com/a', userAgent: 'Mozilla/5.0 X' }));
+assert.strictEqual(r.job.userAgent, 'Mozilla/5.0 X');
+r = parseAddBody(JSON.stringify({ url: 'https://ex.com/a', userAgent: 'x'.repeat(513) }));
+assert.strictEqual('userAgent' in r.job, false);
+assert.strictEqual('userAgent' in parseAddBody(JSON.stringify({ url: 'https://ex.com/a', userAgent: 123 })).job, false);
+
+// 9) cookies: 이름·값·도메인이 문자열인 것만 남기고, path/secure는 기본값 보정
+r = parseAddBody(JSON.stringify({ url: 'https://ex.com/a', cookies: [
+  { domain: '.ex.com', name: 'sid', value: 'abc', path: '/x', secure: true, expirationDate: 1900000000 },
+  { domain: 'ex.com', name: 'sess', value: 'z' },   // path/secure 없음 → 기본값
+  { name: 'bad', value: 'v' },                        // domain 없음 → 버림
+  { domain: 'ex.com', name: 'nn', value: 123 },       // value 숫자 → 버림
+] }));
+assert.strictEqual(r.job.cookies.length, 2);
+assert.deepStrictEqual(r.job.cookies[0], { domain: '.ex.com', path: '/x', secure: true, expirationDate: 1900000000, name: 'sid', value: 'abc' });
+assert.deepStrictEqual(r.job.cookies[1], { domain: 'ex.com', path: '/', secure: false, expirationDate: undefined, name: 'sess', value: 'z' });
+
+// 10) cookies가 배열 아니거나 쓸 게 없으면 키 없음
+assert.strictEqual('cookies' in parseAddBody(JSON.stringify({ url: 'https://ex.com/a', cookies: 'nope' })).job, false);
+assert.strictEqual('cookies' in parseAddBody(JSON.stringify({ url: 'https://ex.com/a', cookies: [{ name: 'x' }] })).job, false);
+
 console.log('ok - parseAddBody, isAllowedOrigin');
 
 // ---- http 레벨 테스트: 진짜 서버를 띄워 보안 게이트(토큰·origin·바이트상한·라우트)를 검증한다 ----

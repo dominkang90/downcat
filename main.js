@@ -297,17 +297,28 @@ ipcMain.handle('download', async (e, { jobId, url, mode, useCookie, thumbnail, e
   const send = (ev) => { if (!e.sender.isDestroyed()) e.sender.send('job-event', { jobId, ...ev }); }; // 종료 중 창 사라짐 방어
   const ac = new AbortController();
   jobs[jobId] = ac;
+  // 확장이 보낸 브라우저 쿠키가 있으면 이 작업만 쓸 임시 cookies.txt로 굽는다. 민감하므로 끝나면 지운다.
+  let jobCookieFile = null;
+  if (extra && Array.isArray(extra.cookies) && extra.cookies.length) {
+    try {
+      jobCookieFile = path.join(app.getPath('temp'), `downcat-ck-${jobId}.txt`);
+      fs.writeFileSync(jobCookieFile, ['# Netscape HTTP Cookie File', ...extra.cookies.map(netscapeLine)].join('\n') + '\n');
+    } catch { jobCookieFile = null; }
+  }
   let result;
   try {
     result = await engine.download(url, {
       outDir: settings.outDir, mode,
-      cookieFile: useCookie ? settings.cookieFile : null,
+      cookieFile: jobCookieFile || (useCookie ? settings.cookieFile : null), // 확장 쿠키 우선, 없으면 앱 로그인 쿠키
       referer: extra && extra.referer,   // 브리지(확장)가 준 referer — 엔진이 이미 지원
+      userAgent: extra && extra.userAgent, // 확장이 준 브라우저 UA
       thumbnail, ytHeight: settings.ytHeight, stories: settings.stories, rateLimit: settings.rateLimit,
       signal: ac.signal,
     }, send);
   } catch (err) { // 저장폴더 소실(USB 뽑힘 등) — 카드가 '받는 중'에 영원히 멈추지 않게 실패로 처리
     result = { ok: false, tool: null, code: -1, count: 0, bytes: 0, thumb: null, file: null, error: String(err) };
+  } finally {
+    if (jobCookieFile) { try { fs.rmSync(jobCookieFile, { force: true }); } catch {} } // 민감한 쿠키 파일 즉시 삭제
   }
   delete jobs[jobId];
 
