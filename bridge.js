@@ -17,6 +17,8 @@ function parseAddBody(raw) {
   if (typeof data.referer === 'string' && /^https?:\/\//i.test(data.referer)) job.referer = data.referer;
   // User-Agent는 짧은 문자열만(확장이 navigator.userAgent를 그대로 넘김)
   if (typeof data.userAgent === 'string' && data.userAgent.length <= 512) job.userAgent = data.userAgent;
+  // yt-dlp 포맷 지정(확장에서 고른 화질). 짧고 안전한 문자만 허용.
+  if (typeof data.format === 'string' && data.format.length <= 100 && /^[\w+\-./:]+$/.test(data.format)) job.format = data.format;
   // 브라우저 쿠키(확장이 chrome.cookies.getAll로 모은 것) → 안전한 것만 골라 담는다
   const cookies = sanitizeCookies(data.cookies);
   if (cookies) job.cookies = cookies;
@@ -52,7 +54,8 @@ const PORT = 47653;
 const MAX_BODY = 64 * 1024; // 본문 상한 64KB
 
 // 확장이 던진 요청을 받는 서버를 만든다. onJob(job)이 창에 전달 성공하면 true.
-function createBridgeServer({ token, onJob }) {
+// onProbe(job) -> Promise<formats>: 영상 포맷 목록을 캐서 돌려준다(선택).
+function createBridgeServer({ token, onJob, onProbe }) {
   const server = http.createServer((req, res) => {
     const origin = req.headers.origin;
     // 확장 요청이면 CORS 헤더를 붙인다(Private Network Access 프리플라이트 포함)
@@ -68,7 +71,8 @@ function createBridgeServer({ token, onJob }) {
 
     if (req.method === 'OPTIONS') { setCors(); res.writeHead(204); res.end(); return; }
     if (req.method === 'GET' && req.url === '/ping') { send(200, { ok: true, app: 'downcat' }); return; }
-    if (req.method === 'POST' && req.url === '/add') {
+    // POST /add(다운로드 넣기) 와 /formats(포맷 목록 조회)는 같은 보안검사·본문읽기를 공유한다.
+    if (req.method === 'POST' && (req.url === '/add' || req.url === '/formats')) {
       if (origin !== undefined && !isAllowedOrigin(origin)) { send(403, { ok: false, error: 'origin 거부' }); return; }
       if (req.headers['x-downcat-token'] !== token) { send(403, { ok: false, error: '토큰 불일치' }); return; }
       const chunks = []; let size = 0; let tooBig = false;
@@ -82,6 +86,13 @@ function createBridgeServer({ token, onJob }) {
         const body = Buffer.concat(chunks).toString('utf8'); // 끝에서 한 번만 디코드(멀티바이트 안전)
         const parsed = parseAddBody(body);
         if (parsed.error) { send(400, { ok: false, error: parsed.error }); return; }
+        if (req.url === '/formats') {                       // 포맷 목록: onProbe가 yt-dlp로 캐온다
+          if (!onProbe) { send(501, { ok: false, error: '포맷 조회 미지원' }); return; }
+          Promise.resolve(onProbe(parsed.job))
+            .then(r => send(200, r || { ok: false, error: '결과 없음' }))
+            .catch(e => send(500, { ok: false, error: String((e && e.message) || e) }));
+          return;
+        }
         const delivered = onJob(parsed.job);
         if (delivered) send(200, { ok: true }); else send(503, { ok: false, error: '받냥이 창이 준비 안 됨' });
       });

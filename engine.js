@@ -73,7 +73,8 @@ function ytdlpArgs(url, outDir, o) {
     '-o', path.join(outDir, '%(extractor)s', '%(uploader)s', `${prefix}%(title)s [%(id)s].%(ext)s`),
   ];
   const h = o.ytHeight ? `[height<=${o.ytHeight}]` : '';
-  if (ff !== null) args.push('-f', `bv*${h}+ba/b${h}/b`); else args.push('-f', `b${h}/b`);
+  if (o.format) args.push('-f', o.format);              // 확장에서 고른 특정 포맷(화질) 우선
+  else if (ff !== null) args.push('-f', `bv*${h}+ba/b${h}/b`); else args.push('-f', `b${h}/b`);
   if (ff) args.push('--ffmpeg-location', ff);
   if (o.thumbnail) args.push('--write-thumbnail');
   if (o.polite) args.push(
@@ -331,7 +332,50 @@ async function download(url, opts, onEvent) {
   });
 }
 
-module.exports = { download, pickTool, isDirectFileUrl, expandListing, extractItemLinks, resolveEmbeddedSource, ytdlpArgs };
+// 영상 하나의 받을 수 있는 포맷 목록을 yt-dlp -J로 캐온다(화질·용량·썸네일). 확장 패널이 씀.
+function classifyFmt(f) {
+  const hasV = f.vcodec && f.vcodec !== 'none';
+  const hasA = f.acodec && f.acodec !== 'none';
+  if (hasV && hasA) return 'both';
+  if (hasV) return 'video';
+  if (hasA) return 'audio';
+  return null; // 스토리보드/이미지 등은 버림
+}
+
+function probeFormats(url, opts) {
+  opts = opts || {};
+  const args = ['-J', '--no-warnings', '--no-playlist'];
+  if (opts.referer) args.push('--referer', opts.referer);
+  if (opts.userAgent) args.push('--user-agent', opts.userAgent);
+  args.push(...cookieArgs(null, opts.cookieFile));
+  args.push(url);
+  const signal = opts.signal || AbortSignal.timeout(30000); // 오래 걸리면 끊는다
+  return new Promise((resolve) => {
+    let out = '', err = '';
+    const child = spawn(YTDLP, args, { windowsHide: true, signal });
+    child.stdout.on('data', d => out += d);
+    child.stderr.on('data', d => err += d);
+    child.on('error', (e) => resolve({ ok: false, error: e.name === 'AbortError' ? '시간 초과' : String(e) }));
+    child.on('close', (code) => {
+      if (code !== 0) { resolve({ ok: false, error: (err.trim().split(/\r?\n/).pop() || ('yt-dlp 오류 ' + code)) }); return; }
+      let d; try { d = JSON.parse(out); } catch { resolve({ ok: false, error: '포맷 정보 파싱 실패' }); return; }
+      const video = [], audio = [];
+      for (const f of (d.formats || [])) {
+        const kind = classifyFmt(f);
+        if (!kind) continue;
+        const item = { id: f.format_id, ext: f.ext, size: f.filesize || f.filesize_approx || null,
+          approx: !f.filesize && !!f.filesize_approx, fps: f.fps || null, height: f.height || null,
+          tbr: f.tbr || null, abr: f.abr || null, both: kind === 'both' };
+        (kind === 'audio' ? audio : video).push(item);
+      }
+      video.sort((a, b) => (b.height || 0) - (a.height || 0) || (b.tbr || 0) - (a.tbr || 0));
+      audio.sort((a, b) => (b.abr || b.tbr || 0) - (a.abr || a.tbr || 0));
+      resolve({ ok: true, title: d.title || '', thumbnail: d.thumbnail || null, duration: d.duration || null, video, audio });
+    });
+  });
+}
+
+module.exports = { download, pickTool, isDirectFileUrl, expandListing, extractItemLinks, resolveEmbeddedSource, ytdlpArgs, probeFormats };
 
 // 터미널에서 직접 실행: node engine.js <URL> [auto|video|image]
 if (require.main === module) {

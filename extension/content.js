@@ -1,127 +1,159 @@
 'use strict';
-// 페이지의 각 <video>에 마우스를 올리면 그 위에 "받냥이로 받기" 목록 패널을 띄운다.
-// 목록엔 페이지의 동영상들 + 배경이 감지한 스트림이 썸네일과 함께 나오고, 클릭하면 받냥이로 보낸다.
+// 각 <video> 위(우측 상단)에 "받냥이" 버튼을 띄운다. 누르면 받을 수 있는 포맷(영상/오디오 탭,
+// 화질·용량·썸네일)을 보여주고 고른 걸 받냥이로 받는다. yt-dlp가 못 읽는 곳은 간단 목록으로 폴백.
 
 const Z = 2147483647;
 const seen = new WeakSet();
-let panel, listEl, hideTimer;
+let btn, panel, head, tabsEl, listEl, activeVideo, hideTimer;
 
-// 다운로드 URL·모드: 직접 http 영상 → aria2(file), blob/스트리밍 → 페이지를 yt-dlp(video)
-function urlFor(video) {
-  const s = video.currentSrc || video.src || '';
-  return /^https?:\/\//i.test(s) ? { url: s, mode: 'file' } : { url: location.href, mode: 'video' };
+/* 유틸 */
+function el(tag, style, text) { const e = document.createElement(tag); if (style) Object.assign(e.style, style); if (text != null) e.textContent = text; return e; }
+function fmtSize(n) { if (!n) return ''; const u = ['B', 'KB', 'MB', 'GB']; let i = 0, v = n; while (v >= 1024 && i < 3) { v /= 1024; i++; } return (v < 10 ? v.toFixed(1) : Math.round(v)) + u[i]; }
+function send(url, mode, format) { return chrome.runtime.sendMessage({ type: 'send', url, mode, format }).catch(() => ({ ok: false, error: '확장 오류' })); }
+
+/* 영상 위 버튼 */
+function ensureButton() {
+  if (btn) return;
+  btn = el('button', { position: 'fixed', zIndex: String(Z), display: 'none', cursor: 'pointer',
+    background: 'rgba(43,155,163,.95)', color: '#fff', border: 'none', borderRadius: '6px',
+    padding: '5px 9px', font: '600 12px system-ui,sans-serif', boxShadow: '0 2px 8px rgba(0,0,0,.45)' }, '⬇ 받냥이');
+  btn.addEventListener('mouseenter', () => clearTimeout(hideTimer));
+  btn.addEventListener('mouseleave', scheduleHide);
+  btn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); openPanel(); });
+  document.body.appendChild(btn);
 }
-
-// 썸네일: poster 우선(교차출처도 img로는 표시 OK), 없으면 현재 프레임 캡처(같은 출처만, 실패 시 null)
-function thumbFor(video) {
-  if (video.poster) return video.poster;
-  try {
-    const c = document.createElement('canvas');
-    c.width = 128; c.height = 72;
-    c.getContext('2d').drawImage(video, 0, 0, 128, 72);
-    return c.toDataURL('image/jpeg', 0.6);
-  } catch { return null; } // 교차출처 영상은 캔버스가 오염돼 못 읽음 → 썸네일 생략
+function showButton(video) {
+  ensureButton(); clearTimeout(hideTimer); activeVideo = video;
+  const r = video.getBoundingClientRect();
+  if (r.width < 160 || r.height < 100) { btn.style.display = 'none'; return; } // 작은 영상/광고 제외
+  btn.style.left = Math.min(window.innerWidth - 92, r.right - 92) + 'px';
+  btn.style.top = Math.max(4, r.top + 8) + 'px';
+  btn.style.display = 'block';
 }
+function scheduleHide() { hideTimer = setTimeout(hideAll, 600); }
+function hideAll() { if (panel && panel.matches(':hover')) return; if (btn) btn.style.display = 'none'; if (panel) panel.style.display = 'none'; }
 
+/* 패널 */
 function ensurePanel() {
   if (panel) return;
-  panel = document.createElement('div');
-  panel.setAttribute('data-downcat', '1');
-  Object.assign(panel.style, {
-    position: 'fixed', zIndex: String(Z), display: 'none', maxHeight: '260px', overflowY: 'auto',
-    background: 'rgba(20,20,22,.94)', color: '#fff', borderRadius: '10px', padding: '8px',
-    font: '13px system-ui, sans-serif', boxShadow: '0 4px 18px rgba(0,0,0,.5)', width: '300px',
-  });
-  const title = document.createElement('div');
-  title.textContent = '받냥이로 받기';
-  Object.assign(title.style, { fontWeight: '700', margin: '2px 4px 6px', color: '#7fd6da' });
-  listEl = document.createElement('div');
-  panel.append(title, listEl);
+  panel = el('div', { position: 'fixed', zIndex: String(Z), display: 'none', width: '320px',
+    background: 'rgba(20,20,22,.96)', color: '#fff', borderRadius: '10px',
+    font: '13px system-ui,sans-serif', boxShadow: '0 6px 22px rgba(0,0,0,.55)' });
+  head = el('div', { display: 'flex', gap: '8px', padding: '8px', alignItems: 'center' });
+  tabsEl = el('div', { display: 'flex', gap: '6px', padding: '0 8px 6px' });
+  listEl = el('div', { maxHeight: '230px', overflowY: 'auto', padding: '0 6px 8px' });
+  panel.append(head, tabsEl, listEl);
   panel.addEventListener('mouseenter', () => clearTimeout(hideTimer));
   panel.addEventListener('mouseleave', scheduleHide);
+  panel.addEventListener('click', (e) => e.stopPropagation());
   document.body.appendChild(panel);
 }
+function positionPanel() {
+  const r = activeVideo.getBoundingClientRect();
+  panel.style.left = Math.min(window.innerWidth - 332, Math.max(8, r.right - 320)) + 'px';
+  panel.style.top = Math.max(8, r.top + 8) + 'px';
+}
 
-// 목록 한 줄(썸네일 + 이름 + 설명). 클릭하면 받냥이로 보내고 실제 결과를 줄에 표시.
-function makeRow(thumb, label, sub, url, mode) {
-  const r = document.createElement('div');
-  Object.assign(r.style, { display: 'flex', gap: '8px', alignItems: 'center', padding: '5px', borderRadius: '6px', cursor: 'pointer' });
+async function openPanel() {
+  ensurePanel(); positionPanel();
+  head.textContent = ''; tabsEl.textContent = ''; listEl.textContent = '';
+  head.append(el('div', { padding: '6px', color: '#9aa' }, '받을 수 있는 화질 불러오는 중…'));
+  panel.style.display = 'block';
+  const url = location.href;
+  const res = await chrome.runtime.sendMessage({ type: 'probe', url }).catch(() => ({ ok: false, error: '확장 오류' }));
+  renderPanel(res, url);
+}
+
+function makeHeader(thumb, title) {
+  head.textContent = '';
+  const t = el('div', { width: '86px', height: '48px', flex: 'none', borderRadius: '5px', background: '#333',
+    backgroundSize: 'cover', backgroundPosition: 'center', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' });
+  if (thumb) t.style.backgroundImage = `url("${thumb}")`; else t.textContent = '🎬';
+  const ti = el('div', { fontWeight: '700', lineHeight: '1.25', maxHeight: '48px', overflow: 'hidden' }, title || '받냥이로 받기');
+  head.append(t, ti);
+}
+
+// 한 줄(화질/이름 + 용량). 클릭하면 onClick()의 결과를 표시.
+function row(label, sub, onClick) {
+  const r = el('div', { display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center',
+    padding: '7px 8px', borderRadius: '6px', cursor: 'pointer' });
   r.addEventListener('mouseenter', () => { r.style.background = 'rgba(255,255,255,.12)'; });
   r.addEventListener('mouseleave', () => { r.style.background = 'transparent'; });
-  const th = document.createElement('div');
-  Object.assign(th.style, { width: '56px', height: '32px', flex: 'none', borderRadius: '4px', background: '#333', backgroundSize: 'cover', backgroundPosition: 'center', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '16px' });
-  if (thumb) th.style.backgroundImage = `url("${thumb}")`; else th.textContent = '🎬';
-  const txt = document.createElement('div');
-  txt.style.overflow = 'hidden';
-  const name = document.createElement('div');
-  name.textContent = label;
-  Object.assign(name.style, { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' });
-  const subEl = document.createElement('div');
-  subEl.textContent = sub;
-  Object.assign(subEl.style, { fontSize: '11px', color: '#9aa', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' });
-  txt.append(name, subEl);
-  r.append(th, txt);
-  r.addEventListener('click', async (e) => {
-    e.preventDefault(); e.stopPropagation();
-    subEl.textContent = '보내는 중…';
-    const res = await chrome.runtime.sendMessage({ type: 'send', url, mode }).catch(() => ({ ok: false, error: '확장 오류' }));
-    if (res && res.ok) { r.style.background = 'rgba(46,125,50,.55)'; subEl.textContent = res.via === 'browser' ? '브라우저로 받는 중 ⬇' : '받냥이로 보냈어요 ✅'; }
-    else { r.style.background = 'rgba(198,40,40,.5)'; subEl.textContent = (res && res.error) || '실패'; }
+  const L = el('div', { fontWeight: '600' }, label);
+  const S = el('div', { fontSize: '12px', color: '#9aa', textAlign: 'right', whiteSpace: 'nowrap' }, sub);
+  r.append(L, S);
+  r.addEventListener('click', async () => {
+    S.textContent = '보내는 중…';
+    const res = await onClick();
+    if (res && res.ok) { r.style.background = 'rgba(46,125,50,.55)'; S.textContent = res.via === 'browser' ? '받는 중 ⬇' : '받냥이로 ✅'; }
+    else { r.style.background = 'rgba(198,40,40,.5)'; S.textContent = (res && res.error) || '실패'; }
   });
   return r;
 }
 
-async function buildList() {
+function renderPanel(res, pageUrl) {
+  head.textContent = ''; tabsEl.textContent = ''; listEl.textContent = '';
+  if (!res || !res.ok) { // yt-dlp가 못 읽는 곳 → 간단 폴백
+    makeHeader(activeVideo.poster || null, (res && res.error) || '포맷을 못 읽었어요');
+    fallbackList(pageUrl);
+    return;
+  }
+  makeHeader(res.thumbnail || activeVideo.poster, res.title);
+  const V = res.video || [], A = res.audio || [];
+  const tabV = tabButton('영상 ' + V.length), tabA = tabButton('오디오 ' + A.length);
+  tabsEl.append(tabV, tabA);
+  tabV.addEventListener('click', () => { setActive(tabV, tabA); fillVideo(V, pageUrl); });
+  tabA.addEventListener('click', () => { setActive(tabA, tabV); fillAudio(A, pageUrl); });
+  setActive(tabV, tabA); fillVideo(V, pageUrl);
+}
+
+function tabButton(text) {
+  return el('button', { flex: '1', cursor: 'pointer', border: 'none', borderRadius: '6px',
+    padding: '6px', font: '600 12px system-ui', background: '#333', color: '#ccc' }, text);
+}
+function setActive(on, off) { on.style.background = '#2b9ba3'; on.style.color = '#fff'; off.style.background = '#333'; off.style.color = '#ccc'; }
+
+function fillVideo(V, pageUrl) {
   listEl.textContent = '';
-  const rows = [];
-  const done = new Set();
-  const add = (url, mode, thumb, label, sub) => {
-    if (!url || done.has(url)) return; done.add(url);
-    rows.push(makeRow(thumb, label, sub, url, mode));
-  };
-  // 페이지의 동영상들
-  document.querySelectorAll('video').forEach((v, i) => {
-    const { url, mode } = urlFor(v);
-    const res = v.videoWidth ? `${v.videoWidth}×${v.videoHeight}` : (mode === 'video' ? '스트리밍(페이지로 받음)' : '');
-    add(url, mode, thumbFor(v), `동영상 ${i + 1}`, res);
-  });
-  // 배경이 감지한 스트림들
+  if (!V.length) { listEl.append(el('div', { padding: '10px', color: '#9aa' }, '영상 포맷 없음')); return; }
+  for (const f of V) {
+    const q = f.height ? `${f.height}p${f.fps && f.fps > 30 ? f.fps : ''}` : f.ext;
+    const sub = [f.ext.toUpperCase(), fmtSize(f.size) + (f.size && f.approx ? '~' : ''), f.both ? '' : '+음성'].filter(Boolean).join(' · ');
+    const format = f.both ? f.id : `${f.id}+bestaudio/${f.id}`; // 영상전용은 최고 음성을 합쳐 받는다(ffmpeg 필요)
+    listEl.append(row(q, sub, () => send(pageUrl, 'video', format)));
+  }
+}
+function fillAudio(A, pageUrl) {
+  listEl.textContent = '';
+  if (!A.length) { listEl.append(el('div', { padding: '10px', color: '#9aa' }, '오디오 포맷 없음')); return; }
+  for (const f of A) {
+    const q = f.abr ? `${Math.round(f.abr)}kbps` : f.ext;
+    const sub = [f.ext.toUpperCase(), fmtSize(f.size) + (f.size && f.approx ? '~' : '')].filter(Boolean).join(' · ');
+    listEl.append(row(q, sub, () => send(pageUrl, 'video', f.id)));
+  }
+}
+
+async function fallbackList(pageUrl) {
+  listEl.textContent = '';
+  const s = activeVideo.currentSrc || activeVideo.src || '';
+  const direct = /^https?:\/\//i.test(s);
+  listEl.append(row(direct ? '이 영상 받기' : '이 페이지 영상 받기', direct ? '직접 링크' : 'yt-dlp',
+    () => send(direct ? s : pageUrl, direct ? 'file' : 'video')));
   let streams = [];
   try { streams = await chrome.runtime.sendMessage({ type: 'getStreams' }); } catch {}
-  for (const s of (streams || [])) {
-    const isStream = /\.(m3u8|mpd|m4s)(\?|$)/i.test(s.url);
-    add(s.url, isStream ? 'video' : 'file', null, isStream ? '스트림(HLS/DASH)' : (s.kind === 'audio' ? '오디오' : '동영상 파일'), (s.url.split('/').pop() || s.url).slice(0, 44));
-  }
-  if (!rows.length) {
-    const empty = document.createElement('div');
-    empty.textContent = '받을 영상이 안 보여요 (재생을 시작한 뒤 다시 올려보세요).';
-    Object.assign(empty.style, { padding: '8px', color: '#9aa' });
-    listEl.appendChild(empty);
-  } else {
-    rows.forEach(r => listEl.appendChild(r));
+  for (const st of (streams || [])) {
+    const isS = /\.(m3u8|mpd|m4s)(\?|$)/i.test(st.url);
+    listEl.append(row(isS ? '스트림(HLS)' : '미디어', (st.url.split('/').pop() || '').slice(0, 30), () => send(st.url, isS ? 'video' : 'file')));
   }
 }
 
-function showPanel(video) {
-  ensurePanel();
-  clearTimeout(hideTimer);
-  buildList();
-  const r = video.getBoundingClientRect();
-  if (r.width < 120 || r.height < 80) return; // 너무 작은 영상/광고는 무시
-  panel.style.left = Math.min(window.innerWidth - 312, Math.max(8, r.left + 8)) + 'px';
-  panel.style.top = Math.max(8, r.top + 8) + 'px';
-  panel.style.display = 'block';
-}
-function scheduleHide() { hideTimer = setTimeout(() => { if (panel) panel.style.display = 'none'; }, 500); }
-
+/* 영상 감지 */
 function attach(v) {
   if (seen.has(v)) return; seen.add(v);
-  v.addEventListener('mouseenter', () => showPanel(v));
+  v.addEventListener('mouseenter', () => showButton(v));
   v.addEventListener('mouseleave', scheduleHide);
 }
 function scan() { document.querySelectorAll('video').forEach(attach); }
-
 scan();
 new MutationObserver(scan).observe(document.documentElement, { childList: true, subtree: true });
-// 스크롤하면 패널이 영상과 어긋나니 숨긴다(다시 올리면 나옴)
-window.addEventListener('scroll', () => { if (panel) panel.style.display = 'none'; }, true);
+window.addEventListener('scroll', () => { if (btn) btn.style.display = 'none'; if (panel) panel.style.display = 'none'; }, true);

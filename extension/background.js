@@ -49,7 +49,8 @@ chrome.tabs.onRemoved.addListener((tabId) => streamsByTab.delete(tabId));
 // 팝업의 "이 페이지 보내기"·"리소스 수집기"가 배경과 대화한다(토큰·쿠키·referer 로직 재사용).
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg) return;
-  if (msg.type === 'send' && msg.url) { sendToDowncat(msg.url, msg.mode || 'auto', msg.tab).then(sendResponse); return true; } // async 응답
+  if (msg.type === 'send' && msg.url) { sendToDowncat(msg.url, msg.mode || 'auto', msg.tab, msg.format).then(sendResponse); return true; } // async 응답
+  if (msg.type === 'probe' && msg.url) { probeViaBridge(msg.url, sender.tab).then(sendResponse); return true; } // 포맷 목록 조회
   if (msg.type === 'getStreams') {
     // 팝업은 tabId를 주고, content script는 안 주니 보낸 탭(sender)으로 대체
     const tabId = (msg.tabId != null) ? msg.tabId : (sender.tab && sender.tab.id);
@@ -83,16 +84,36 @@ function browserDownloadable(url, mode) {
   return mode === 'file' || mode === 'image';                // 직링 파일/이미지만
 }
 
+// 영상 포맷 목록을 받냥이 앱(yt-dlp)에 물어본다. 앱이 있어야 함(확장 혼자선 못 캠).
+async function probeViaBridge(url, tab) {
+  const token = await getToken();
+  if (!token) return { ok: false, error: '토큰 없음 — 옵션에서 설정' };
+  let cookies = [];
+  try { cookies = await chrome.cookies.getAll({ url }); } catch {}
+  const referer = tab && tab.url && /^https?:/i.test(tab.url) ? tab.url : undefined;
+  try {
+    const res = await fetch(`${BRIDGE}/formats`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Downcat-Token': token },
+      body: JSON.stringify({ url, referer, userAgent: navigator.userAgent, cookies }),
+    });
+    if (res.status === 403) return { ok: false, error: '토큰 불일치 — 옵션에서 다시' };
+    if (res.status === 503) return { ok: false, error: '받냥이 창을 켜주세요' };
+    if (!res.ok) return { ok: false, error: '조회 실패(' + res.status + ')' };
+    return await res.json();
+  } catch { return { ok: false, error: '받냥이 앱이 꺼져 있어요 (화질 조회는 앱 필요)' }; }
+}
+
 // 받는다. 1순위 받냥이 앱(가속·정리·동영상), 앱이 없으면 직링은 브라우저로 폴백.
 // {ok, via:'app'|'browser'} 또는 {ok:false, error}.
-async function sendToDowncat(url, mode, tab) {
+async function sendToDowncat(url, mode, tab, format) {
   const token = await getToken();
   // 1) 받냥이 앱(브리지)에 먼저 시도 — 토큰 있을 때만
   if (token) {
     let cookies = [];
     try { cookies = await chrome.cookies.getAll({ url }); } catch { /* 쿠키 못 읽어도 진행 */ }
     const referer = tab && tab.url && /^https?:/i.test(tab.url) ? tab.url : undefined;
-    const body = JSON.stringify({ url, mode, referer, userAgent: navigator.userAgent, cookies });
+    const body = JSON.stringify({ url, mode, referer, userAgent: navigator.userAgent, cookies, format });
     try {
       const res = await fetch(`${BRIDGE}/add`, {
         method: 'POST',

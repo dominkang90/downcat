@@ -82,6 +82,21 @@ app.whenReady().then(() => {
       mainWin.webContents.send('bridge-job', job);
       return true;
     },
+    // 확장 패널이 요청한 영상 포맷 목록을 yt-dlp로 캐서 돌려준다(확장 쿠키가 있으면 임시로 굽는다).
+    onProbe: async (job) => {
+      let ck = null;
+      if (job.cookies && job.cookies.length) {
+        try {
+          ck = path.join(app.getPath('temp'), `downcat-pk-${Date.now()}.txt`);
+          fs.writeFileSync(ck, ['# Netscape HTTP Cookie File', ...job.cookies.map(netscapeLine)].join('\n') + '\n');
+        } catch { ck = null; }
+      }
+      try {
+        return await engine.probeFormats(job.url, { referer: job.referer, userAgent: job.userAgent, cookieFile: ck });
+      } finally {
+        if (ck) { try { fs.rmSync(ck, { force: true }); } catch {} }
+      }
+    },
   });
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
@@ -312,6 +327,7 @@ ipcMain.handle('download', async (e, { jobId, url, mode, useCookie, thumbnail, e
       cookieFile: jobCookieFile || (useCookie ? settings.cookieFile : null), // 확장 쿠키 우선, 없으면 앱 로그인 쿠키
       referer: extra && extra.referer,   // 브리지(확장)가 준 referer — 엔진이 이미 지원
       userAgent: extra && extra.userAgent, // 확장이 준 브라우저 UA
+      format: extra && extra.format,     // 확장 패널에서 고른 특정 화질(yt-dlp -f)
       thumbnail, ytHeight: settings.ytHeight, stories: settings.stories, rateLimit: settings.rateLimit,
       signal: ac.signal,
     }, send);

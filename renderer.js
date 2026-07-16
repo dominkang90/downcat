@@ -289,6 +289,7 @@ window.api.onBridgeJob((job) => {
   if (job.referer) extra.referer = job.referer;
   if (job.userAgent) extra.userAgent = job.userAgent;
   if (job.cookies) extra.cookies = job.cookies;
+  if (job.format) extra.format = job.format;
   const t = { id: crypto.randomUUID(), url: job.url, mode: job.mode || 'auto',
     status: 'queued', count: 0, bytes: 0, thumb: null, _pct: 0, _seq: seq++,
     extra: Object.keys(extra).length ? extra : null };
