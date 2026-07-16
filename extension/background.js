@@ -88,14 +88,13 @@ function browserDownloadable(url, mode) {
 async function probeViaBridge(url, tab) {
   const token = await getToken();
   if (!token) return { ok: false, error: '토큰 없음 — 옵션에서 설정' };
-  let cookies = [];
-  try { cookies = await chrome.cookies.getAll({ url }); } catch {}
   const referer = tab && tab.url && /^https?:/i.test(tab.url) ? tab.url : undefined;
   try {
+    // 쿠키는 안 보낸다 — 유튜브는 로그인 쿠키가 있으면 인증 클라이언트로 붙어 "포맷 없음"이 난다.
     const res = await fetch(`${BRIDGE}/formats`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Downcat-Token': token },
-      body: JSON.stringify({ url, referer, userAgent: navigator.userAgent, cookies }),
+      body: JSON.stringify({ url, referer, userAgent: navigator.userAgent }),
     });
     if (res.status === 403) return { ok: false, error: '토큰 불일치 — 옵션에서 다시' };
     if (res.status === 503) return { ok: false, error: '받냥이 창을 켜주세요' };
@@ -110,8 +109,11 @@ async function sendToDowncat(url, mode, tab, format) {
   const token = await getToken();
   // 1) 받냥이 앱(브리지)에 먼저 시도 — 토큰 있을 때만
   if (token) {
+    // yt-dlp(동영상/포맷) 경로엔 쿠키를 안 보낸다 — 유튜브 로그인 쿠키가 포맷을 못 받게 만들고,
+    // probe(쿠키X)와 포맷 id도 어긋난다. 쿠키는 직링 파일(mode file/image/auto)에만 필요.
+    const ytPath = mode === 'video' || !!format;
     let cookies = [];
-    try { cookies = await chrome.cookies.getAll({ url }); } catch { /* 쿠키 못 읽어도 진행 */ }
+    if (!ytPath) { try { cookies = await chrome.cookies.getAll({ url }); } catch { /* 쿠키 못 읽어도 진행 */ } }
     const referer = tab && tab.url && /^https?:/i.test(tab.url) ? tab.url : undefined;
     const body = JSON.stringify({ url, mode, referer, userAgent: navigator.userAgent, cookies, format });
     try {
