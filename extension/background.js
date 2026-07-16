@@ -14,9 +14,47 @@ chrome.runtime.onInstalled.addListener(() => {
   });
 });
 
-// 팝업의 "이 페이지 보내기"도 같은 전송 로직을 쓴다(토큰·쿠키·referer 처리 재사용).
-chrome.runtime.onMessage.addListener((msg) => {
-  if (msg && msg.type === 'send' && msg.url) sendToDowncat(msg.url, msg.mode || 'auto', msg.tab);
+// ---- 동영상/미디어 스트림 감지: 탭마다 오간 미디어 요청 URL을 모은다(팝업 "리소스 수집기"용) ----
+// ponytail: 서비스워커가 잠들면 목록이 비워짐(메모리 Map). 페이지가 재생되면 다시 잡히니 감수.
+const streamsByTab = new Map(); // tabId -> Map<url, {url, kind}>
+const STREAM_RE = /\.(m3u8|mpd|m4s)(\?|$)/i;                 // HLS/DASH 조각 스트림 → yt-dlp
+const VIDEO_RE = /\.(mp4|webm|mkv|mov|m4v|avi|ts)(\?|$)/i;
+const AUDIO_RE = /\.(mp3|m4a|aac|flac|wav|ogg|opus)(\?|$)/i;
+
+function classifyUrl(url) {
+  if (STREAM_RE.test(url)) return 'stream';
+  if (VIDEO_RE.test(url)) return 'video';
+  if (AUDIO_RE.test(url)) return 'audio';
+  return null;
+}
+
+chrome.webRequest.onBeforeRequest.addListener(
+  (d) => {
+    if (d.tabId < 0 || !/^https?:/i.test(d.url)) return;
+    const kind = classifyUrl(d.url);
+    if (!kind) return;
+    let m = streamsByTab.get(d.tabId);
+    if (!m) { m = new Map(); streamsByTab.set(d.tabId, m); }
+    if (!m.has(d.url)) m.set(d.url, { url: d.url, kind });
+  },
+  { urls: ['<all_urls>'], types: ['media', 'xmlhttprequest', 'other'] }
+);
+
+// 새 페이지로 이동하면 그 탭의 목록을 비운다(옛 페이지 미디어가 안 섞이게)
+chrome.tabs.onUpdated.addListener((tabId, info) => {
+  if (info.status === 'loading' && info.url) streamsByTab.delete(tabId);
+});
+chrome.tabs.onRemoved.addListener((tabId) => streamsByTab.delete(tabId));
+
+// 팝업의 "이 페이지 보내기"·"리소스 수집기"가 배경과 대화한다(토큰·쿠키·referer 로직 재사용).
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (!msg) return;
+  if (msg.type === 'send' && msg.url) { sendToDowncat(msg.url, msg.mode || 'auto', msg.tab); return; }
+  if (msg.type === 'getStreams') {
+    const m = streamsByTab.get(msg.tabId);
+    sendResponse(m ? [...m.values()] : []); // 동기 응답
+    return;
+  }
 });
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
