@@ -51,7 +51,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg) return;
   if (msg.type === 'send' && msg.url) { sendToDowncat(msg.url, msg.mode || 'auto', msg.tab); return; }
   if (msg.type === 'getStreams') {
-    const m = streamsByTab.get(msg.tabId);
+    // 팝업은 tabId를 주고, content script는 안 주니 보낸 탭(sender)으로 대체
+    const tabId = (msg.tabId != null) ? msg.tabId : (sender.tab && sender.tab.id);
+    const m = streamsByTab.get(tabId);
     sendResponse(m ? [...m.values()] : []); // 동기 응답
     return;
   }
