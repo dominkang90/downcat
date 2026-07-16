@@ -76,31 +76,48 @@ async function getToken() {
   try { const m = await chrome.storage.managed.get('bridgeToken'); return m.bridgeToken || ''; } catch { return ''; }
 }
 
-// 받냥이 브리지로 보낸다. {ok:true} 또는 {ok:false, error} 를 돌려준다(호출부가 결과를 표시).
+// 브라우저 단독으로 받을 수 있는 건가? 직링 http 파일만(스트림·blob·페이지는 yt-dlp 필요 → 앱).
+function browserDownloadable(url, mode) {
+  if (!/^https?:\/\//i.test(url)) return false;             // blob:/data: 불가
+  if (/\.(m3u8|mpd|m4s)(\?|$)/i.test(url)) return false;    // HLS/DASH는 조립 필요 → 앱
+  return mode === 'file' || mode === 'image';                // 직링 파일/이미지만
+}
+
+// 받는다. 1순위 받냥이 앱(가속·정리·동영상), 앱이 없으면 직링은 브라우저로 폴백.
+// {ok, via:'app'|'browser'} 또는 {ok:false, error}.
 async function sendToDowncat(url, mode, tab) {
   const token = await getToken();
-  if (!token) { flash('토큰 없음 — 확장 옵션에서 붙여넣기'); return { ok: false, error: '토큰 없음 — 옵션에서 설정' }; }
-
-  let cookies = [];
-  try { cookies = await chrome.cookies.getAll({ url }); } catch { /* 쿠키 못 읽어도 그냥 진행 */ }
-
-  const referer = tab && tab.url && /^https?:/i.test(tab.url) ? tab.url : undefined;
-  const body = JSON.stringify({ url, mode, referer, userAgent: navigator.userAgent, cookies });
-
-  try {
-    const res = await fetch(`${BRIDGE}/add`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Downcat-Token': token },
-      body,
-    });
-    if (res.ok) { flash('받냥이에 보냈어요 ✅', '✓'); return { ok: true }; }
-    if (res.status === 403) { flash('토큰이 안 맞아요 — 옵션에서 다시'); return { ok: false, error: '토큰 불일치 — 옵션에서 다시' }; }
-    if (res.status === 503) { flash('받냥이 창을 먼저 켜주세요'); return { ok: false, error: '받냥이 창을 켜주세요' }; }
-    flash('전송 실패: ' + res.status); return { ok: false, error: '전송 실패(' + res.status + ')' };
-  } catch {
-    flash('받냥이가 안 켜져 있어요 (먼저 실행)');
-    return { ok: false, error: '받냥이가 안 켜져 있어요 (먼저 실행)' };
+  // 1) 받냥이 앱(브리지)에 먼저 시도 — 토큰 있을 때만
+  if (token) {
+    let cookies = [];
+    try { cookies = await chrome.cookies.getAll({ url }); } catch { /* 쿠키 못 읽어도 진행 */ }
+    const referer = tab && tab.url && /^https?:/i.test(tab.url) ? tab.url : undefined;
+    const body = JSON.stringify({ url, mode, referer, userAgent: navigator.userAgent, cookies });
+    try {
+      const res = await fetch(`${BRIDGE}/add`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Downcat-Token': token },
+        body,
+      });
+      if (res.ok) { flash('받냥이에 보냈어요 ✅', '✓'); return { ok: true, via: 'app' }; }
+      if (res.status === 403) { flash('토큰이 안 맞아요 — 옵션에서 다시'); return { ok: false, error: '토큰 불일치 — 옵션에서 다시' }; }
+      // 503(창 준비 안 됨) 등은 아래 브라우저 폴백으로
+    } catch { /* 앱 꺼짐 → 폴백 */ }
   }
+  // 2) 앱이 없으면: 직링 파일은 브라우저 내장 다운로더로 단독 처리(쿠키는 브라우저가 자동 첨부)
+  if (browserDownloadable(url, mode)) {
+    try {
+      await chrome.downloads.download({ url });
+      flash('브라우저로 받는 중 ⬇', '✓');
+      return { ok: true, via: 'browser' };
+    } catch (e) {
+      flash('다운로드 실패');
+      return { ok: false, error: '다운로드 실패: ' + (e && e.message || e) };
+    }
+  }
+  // 3) 동영상/스트림/갤러리는 앱이 꼭 필요
+  flash('동영상·갤러리는 받냥이 앱이 필요해요');
+  return { ok: false, error: '동영상·갤러리는 받냥이 앱을 켜주세요 (직링 파일은 앱 없이도 받음)' };
 }
 
 // ponytail: notifications 권한 대신 툴바 배지+툴팁으로 가볍게 알린다(4초 뒤 지움).

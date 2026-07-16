@@ -65,7 +65,7 @@ function makeRow(thumb, label, sub, url, mode) {
     e.preventDefault(); e.stopPropagation();
     subEl.textContent = '보내는 중…';
     const res = await chrome.runtime.sendMessage({ type: 'send', url, mode }).catch(() => ({ ok: false, error: '확장 오류' }));
-    if (res && res.ok) { r.style.background = 'rgba(46,125,50,.55)'; subEl.textContent = '받냥이로 보냈어요 ✅'; }
+    if (res && res.ok) { r.style.background = 'rgba(46,125,50,.55)'; subEl.textContent = res.via === 'browser' ? '브라우저로 받는 중 ⬇' : '받냥이로 보냈어요 ✅'; }
     else { r.style.background = 'rgba(198,40,40,.5)'; subEl.textContent = (res && res.error) || '실패'; }
   });
   return r;
