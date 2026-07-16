@@ -32,7 +32,7 @@ function createBridgeServer({ token, onJob }) {
     const origin = req.headers.origin;
     // 확장 요청이면 CORS 헤더를 붙인다(Private Network Access 프리플라이트 포함)
     const setCors = () => {
-      if (origin && isAllowedOrigin(origin)) {
+      if (origin !== undefined && isAllowedOrigin(origin)) {
         res.setHeader('Access-Control-Allow-Origin', origin);
         res.setHeader('Access-Control-Allow-Private-Network', 'true');
         res.setHeader('Access-Control-Allow-Methods', 'POST, GET');
@@ -44,12 +44,17 @@ function createBridgeServer({ token, onJob }) {
     if (req.method === 'OPTIONS') { setCors(); res.writeHead(204); res.end(); return; }
     if (req.method === 'GET' && req.url === '/ping') { send(200, { ok: true, app: 'downcat' }); return; }
     if (req.method === 'POST' && req.url === '/add') {
-      if (origin && !isAllowedOrigin(origin)) { send(403, { ok: false, error: 'origin 거부' }); return; }
+      if (origin !== undefined && !isAllowedOrigin(origin)) { send(403, { ok: false, error: 'origin 거부' }); return; }
       if (req.headers['x-downcat-token'] !== token) { send(403, { ok: false, error: '토큰 불일치' }); return; }
-      let body = ''; let tooBig = false;
-      req.on('data', (c) => { body += c; if (body.length > MAX_BODY) { tooBig = true; req.destroy(); } });
+      const chunks = []; let size = 0; let tooBig = false;
+      req.on('data', (c) => {
+        size += c.length;                                  // c는 Buffer → 바이트 길이(문자 수 아님)
+        if (size > MAX_BODY) { tooBig = true; req.destroy(); return; }
+        chunks.push(c);
+      });
       req.on('end', () => {
         if (tooBig) return;
+        const body = Buffer.concat(chunks).toString('utf8'); // 끝에서 한 번만 디코드(멀티바이트 안전)
         const parsed = parseAddBody(body);
         if (parsed.error) { send(400, { ok: false, error: parsed.error }); return; }
         const delivered = onJob(parsed.job);
