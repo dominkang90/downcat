@@ -31,6 +31,9 @@ const DEFAULTS = {
   notify: true,       // 작업 완료 알림
 };
 let settings = Object.assign({}, DEFAULTS, loadJson(CONFIG, {}));
+// 브리지 토큰: 설치별 비밀. 첫 실행 때 만들어 config.json에 저장(gitignore됨). 확장 옵션에 붙여넣어 짝을 맞춘다.
+if (!settings.bridgeToken) { settings.bridgeToken = require('crypto').randomBytes(24).toString('hex'); saveCfg(); }
+let bridgeServer = null;
 function saveCfg() { saveJson(CONFIG, settings); }
 let mainWin = null;
 const jobs = {}; // jobId -> AbortController (실행 중인 다운로드, 취소용)
@@ -71,12 +74,21 @@ function createWindow() {
 app.whenReady().then(() => {
   createWindow();
   startClipboardWatch();
+  // 로컬 브리지: 확장이 던진 URL을 clipboard-url과 같은 방식으로 창에 넣는다.
+  bridgeServer = require('./bridge').createBridgeServer({
+    token: settings.bridgeToken,
+    onJob: (job) => {
+      if (!mainWin || mainWin.isDestroyed()) return false; // 창 없으면 503
+      mainWin.webContents.send('bridge-job', job);
+      return true;
+    },
+  });
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 // 앱을 닫으면 진행 중이던 다운로드 프로세스도 같이 끝낸다 (윈도우는 자식 프로세스가 저절로 안 죽음).
 // ponytail: yt-dlp가 띄운 ffmpeg 손자 프로세스까지는 못 죽임 — 병합 몇 초짜리라 감수
-app.on('before-quit', () => { for (const id in jobs) jobs[id].abort(); });
+app.on('before-quit', () => { for (const id in jobs) jobs[id].abort(); if (bridgeServer) bridgeServer.close(); });
 
 // 클립보드 감시: autoClip이 켜져 있으면 새 URL이 복사될 때 창에 알려 자동 추가.
 let lastClip = '';
@@ -281,7 +293,7 @@ ipcMain.handle('pick-cookie-file', async (e) => {
 ipcMain.handle('expand-listing', (e, url) => engine.expandListing(url));
 
 // 다운로드: 진행 상황은 'job-event' 채널로, 최종 결과만 반환. jobId로 취소 가능.
-ipcMain.handle('download', async (e, { jobId, url, mode, useCookie, thumbnail }) => {
+ipcMain.handle('download', async (e, { jobId, url, mode, useCookie, thumbnail, extra }) => {
   const send = (ev) => { if (!e.sender.isDestroyed()) e.sender.send('job-event', { jobId, ...ev }); }; // 종료 중 창 사라짐 방어
   const ac = new AbortController();
   jobs[jobId] = ac;
@@ -290,6 +302,7 @@ ipcMain.handle('download', async (e, { jobId, url, mode, useCookie, thumbnail })
     result = await engine.download(url, {
       outDir: settings.outDir, mode,
       cookieFile: useCookie ? settings.cookieFile : null,
+      referer: extra && extra.referer,   // 브리지(확장)가 준 referer — 엔진이 이미 지원
       thumbnail, ytHeight: settings.ytHeight, stories: settings.stories, rateLimit: settings.rateLimit,
       signal: ac.signal,
     }, send);
