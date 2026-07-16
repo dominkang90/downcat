@@ -49,7 +49,7 @@ chrome.tabs.onRemoved.addListener((tabId) => streamsByTab.delete(tabId));
 // 팝업의 "이 페이지 보내기"·"리소스 수집기"가 배경과 대화한다(토큰·쿠키·referer 로직 재사용).
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg) return;
-  if (msg.type === 'send' && msg.url) { sendToDowncat(msg.url, msg.mode || 'auto', msg.tab); return; }
+  if (msg.type === 'send' && msg.url) { sendToDowncat(msg.url, msg.mode || 'auto', msg.tab).then(sendResponse); return true; } // async 응답
   if (msg.type === 'getStreams') {
     // 팝업은 tabId를 주고, content script는 안 주니 보낸 탭(sender)으로 대체
     const tabId = (msg.tabId != null) ? msg.tabId : (sender.tab && sender.tab.id);
@@ -76,9 +76,10 @@ async function getToken() {
   try { const m = await chrome.storage.managed.get('bridgeToken'); return m.bridgeToken || ''; } catch { return ''; }
 }
 
+// 받냥이 브리지로 보낸다. {ok:true} 또는 {ok:false, error} 를 돌려준다(호출부가 결과를 표시).
 async function sendToDowncat(url, mode, tab) {
   const token = await getToken();
-  if (!token) { flash('토큰 없음 — 확장 옵션에서 붙여넣기'); return; }
+  if (!token) { flash('토큰 없음 — 확장 옵션에서 붙여넣기'); return { ok: false, error: '토큰 없음 — 옵션에서 설정' }; }
 
   let cookies = [];
   try { cookies = await chrome.cookies.getAll({ url }); } catch { /* 쿠키 못 읽어도 그냥 진행 */ }
@@ -92,12 +93,13 @@ async function sendToDowncat(url, mode, tab) {
       headers: { 'Content-Type': 'application/json', 'X-Downcat-Token': token },
       body,
     });
-    if (res.ok) flash('받냥이에 보냈어요 ✅', '✓');
-    else if (res.status === 403) flash('토큰이 안 맞아요 — 옵션에서 다시');
-    else if (res.status === 503) flash('받냥이 창을 먼저 켜주세요');
-    else flash('전송 실패: ' + res.status);
+    if (res.ok) { flash('받냥이에 보냈어요 ✅', '✓'); return { ok: true }; }
+    if (res.status === 403) { flash('토큰이 안 맞아요 — 옵션에서 다시'); return { ok: false, error: '토큰 불일치 — 옵션에서 다시' }; }
+    if (res.status === 503) { flash('받냥이 창을 먼저 켜주세요'); return { ok: false, error: '받냥이 창을 켜주세요' }; }
+    flash('전송 실패: ' + res.status); return { ok: false, error: '전송 실패(' + res.status + ')' };
   } catch {
     flash('받냥이가 안 켜져 있어요 (먼저 실행)');
+    return { ok: false, error: '받냥이가 안 켜져 있어요 (먼저 실행)' };
   }
 }
 

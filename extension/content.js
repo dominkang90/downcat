@@ -42,8 +42,8 @@ function ensurePanel() {
   document.body.appendChild(panel);
 }
 
-// 목록 한 줄(썸네일 + 이름 + 설명). 클릭하면 onClick.
-function makeRow(thumb, label, sub, onClick) {
+// 목록 한 줄(썸네일 + 이름 + 설명). 클릭하면 받냥이로 보내고 실제 결과를 줄에 표시.
+function makeRow(thumb, label, sub, url, mode) {
   const r = document.createElement('div');
   Object.assign(r.style, { display: 'flex', gap: '8px', alignItems: 'center', padding: '5px', borderRadius: '6px', cursor: 'pointer' });
   r.addEventListener('mouseenter', () => { r.style.background = 'rgba(255,255,255,.12)'; });
@@ -61,11 +61,12 @@ function makeRow(thumb, label, sub, onClick) {
   Object.assign(subEl.style, { fontSize: '11px', color: '#9aa', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' });
   txt.append(name, subEl);
   r.append(th, txt);
-  r.addEventListener('click', (e) => {
+  r.addEventListener('click', async (e) => {
     e.preventDefault(); e.stopPropagation();
-    onClick();
-    r.style.background = 'rgba(46,125,50,.55)';
-    subEl.textContent = '받냥이로 보냈어요 ✅';
+    subEl.textContent = '보내는 중…';
+    const res = await chrome.runtime.sendMessage({ type: 'send', url, mode }).catch(() => ({ ok: false, error: '확장 오류' }));
+    if (res && res.ok) { r.style.background = 'rgba(46,125,50,.55)'; subEl.textContent = '받냥이로 보냈어요 ✅'; }
+    else { r.style.background = 'rgba(198,40,40,.5)'; subEl.textContent = (res && res.error) || '실패'; }
   });
   return r;
 }
@@ -76,7 +77,7 @@ async function buildList() {
   const done = new Set();
   const add = (url, mode, thumb, label, sub) => {
     if (!url || done.has(url)) return; done.add(url);
-    rows.push(makeRow(thumb, label, sub, () => chrome.runtime.sendMessage({ type: 'send', url, mode })));
+    rows.push(makeRow(thumb, label, sub, url, mode));
   };
   // 페이지의 동영상들
   document.querySelectorAll('video').forEach((v, i) => {
