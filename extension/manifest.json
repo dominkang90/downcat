@@ -3,8 +3,10 @@
   "name": "받냥이로 받기",
   "version": "0.1.0",
   "description": "지금 보는 페이지의 파일·링크를 쿠키·referer·UA와 함께 받냥이로 원클릭 다운로드.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAyiuSpmSJsTM1BbQzDyXprz51W3uUucO564qnZaVkhNKV/hDcPr7/c84dkkBh4jusLzQ7kKcCBJPW8InpVqExw6UalzeOBHQ3b1FH8PANHGBb7NzsQsJhVgVPcJ8TERYRaJ5NNa6BgC3Fgb6CFKOlZ6Oe27QY5t9B9B7yUWPqiu/NE25MSZbJiLKpsV71QzRzaLLcGm7sAjAld7WorWBlg9Oxw/MRcYP63E8RHh9PSVXiMIL3U7g80K3bRSmM8XvVlReKk3HrlMJzqnVq4lSA8E2rnlo4Pj+CuiPYrD9U7Sr54gwY6HVb8BnRnUtPWdJzJ2HwqCRZfcmy73h3CSAY9wIDAQAB",
   "permissions": ["contextMenus", "cookies", "storage", "webRequest", "scripting", "tabs"],
   "host_permissions": ["<all_urls>", "http://127.0.0.1:47653/*"],
+  "storage": { "managed_schema": "managed_schema.json" },
   "background": { "service_worker": "background.js" },
   "options_page": "options.html",
   "action": { "default_popup": "popup.html", "default_title": "받냥이" }

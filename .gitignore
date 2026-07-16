@@ -6,3 +6,9 @@ thumbs/
 cookies/
 config.json
 tasks.json
+# 확장 서명키(비밀 — 잃으면 ID 바뀜, 따로 백업). 빌드 산출물은 dist 때 재생성.
+build/extension-key.pem
+build/downcat-ext.crx
+build/downcat-update.xml
+build/extension-id.txt
+build/extension-manifest-key.txt

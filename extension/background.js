@@ -67,8 +67,15 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
   sendToDowncat(url, mode, tab);
 });
 
-async function sendToDowncat(url, mode, tab) {
+// 토큰: 사용자가 옵션에 저장한 값(local) 우선, 없으면 설치기가 넣은 정책값(managed).
+async function getToken() {
   const { token } = await chrome.storage.local.get('token');
+  if (token) return token;
+  try { const m = await chrome.storage.managed.get('bridgeToken'); return m.bridgeToken || ''; } catch { return ''; }
+}
+
+async function sendToDowncat(url, mode, tab) {
+  const token = await getToken();
   if (!token) { flash('토큰 없음 — 확장 옵션에서 붙여넣기'); return; }
 
   let cookies = [];

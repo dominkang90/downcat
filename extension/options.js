@@ -3,8 +3,11 @@
 const BRIDGE = 'http://127.0.0.1:47653';
 const $ = (id) => document.getElementById(id);
 
-// 저장된 토큰 불러오기
+// 저장된 토큰 불러오기 + 설치기가 넣은 정책 토큰이 있으면 안내
 chrome.storage.local.get('token').then(({ token }) => { if (token) $('token').value = token; });
+chrome.storage.managed.get('bridgeToken').then((m) => {
+  if (m && m.bridgeToken) setStatus('설치기가 넣은 토큰으로 자동 연결됩니다(직접 안 넣어도 됨).', '#2e7d32');
+}).catch(() => {});
 
 $('save').addEventListener('click', async () => {
   const token = $('token').value.trim();

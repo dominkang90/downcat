@@ -1,0 +1,10 @@
+{
+  "type": "object",
+  "properties": {
+    "bridgeToken": {
+      "type": "string",
+      "title": "받냥이 브리지 토큰",
+      "description": "설치기가 넣어주는 토큰. 있으면 확장이 자동으로 짝을 맞춘다."
+    }
+  }
+}

@@ -6,7 +6,8 @@
   "scripts": {
     "start": "electron .",
     "dl": "node engine.js",
-    "dist": "electron-builder --win nsis"
+    "pack-crx": "node scripts/pack-crx.js",
+    "dist": "node scripts/pack-crx.js && electron-builder --win nsis"
   },
   "devDependencies": {
     "electron": "^32.0.0",
@@ -25,6 +26,7 @@
       "!docs/**",
       "!reference/**",
       "!build/**",
+      "build/downcat-ext.crx",
       "!config.json",
       "!tasks.json",
       "!**/*.md",
