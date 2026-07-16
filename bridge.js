@@ -11,10 +11,35 @@ function parseAddBody(raw) {
   let u;
   try { u = new URL(data.url); } catch { return { error: 'url 형식 오류' }; }
   if (u.protocol !== 'http:' && u.protocol !== 'https:') return { error: 'http/https만 허용' };
-  const job = { url: data.url, mode: (data.mode === 'video' || data.mode === 'image') ? data.mode : 'auto' };
+  const mode = (data.mode === 'video' || data.mode === 'image' || data.mode === 'file') ? data.mode : 'auto';
+  const job = { url: data.url, mode };
   // referer는 http(s)일 때만 받는다(javascript: 같은 위험한 값 차단)
   if (typeof data.referer === 'string' && /^https?:\/\//i.test(data.referer)) job.referer = data.referer;
+  // User-Agent는 짧은 문자열만(확장이 navigator.userAgent를 그대로 넘김)
+  if (typeof data.userAgent === 'string' && data.userAgent.length <= 512) job.userAgent = data.userAgent;
+  // 브라우저 쿠키(확장이 chrome.cookies.getAll로 모은 것) → 안전한 것만 골라 담는다
+  const cookies = sanitizeCookies(data.cookies);
+  if (cookies) job.cookies = cookies;
   return { job };
+}
+
+// 확장이 보낸 쿠키 배열에서 이름·값·도메인이 문자열인 것만 남긴다(main이 cookies.txt로 굽기 전 방어).
+function sanitizeCookies(arr) {
+  if (!Array.isArray(arr)) return undefined;
+  const out = [];
+  for (const c of arr) {
+    if (!c || typeof c.domain !== 'string' || typeof c.name !== 'string' || typeof c.value !== 'string') continue;
+    out.push({
+      domain: c.domain,
+      path: typeof c.path === 'string' ? c.path : '/',
+      secure: !!c.secure,
+      expirationDate: typeof c.expirationDate === 'number' ? c.expirationDate : undefined,
+      name: c.name,
+      value: c.value,
+    });
+    if (out.length >= 500) break; // ponytail: 상한 — 비정상 폭주 방지(본문 64KB 상한이 이미 1차 방어)
+  }
+  return out.length ? out : undefined;
 }
 
 // 브라우저에서 온 요청이면 확장(chrome-extension://)만 허용. Origin이 없으면(curl 등 비브라우저) 허용.

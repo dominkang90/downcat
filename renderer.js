@@ -281,13 +281,17 @@ window.api.onClipboardUrl((url) => {
   enqueueUrls([url], $('mode').value);
 });
 
-// 브리지(브라우저 확장)에서 온 작업: URL을 큐에 넣고 referer를 함께 실어 보낸다.
+// 브리지(브라우저 확장)에서 온 작업: URL을 큐에 넣고 referer·UA·쿠키를 함께 실어 보낸다.
 window.api.onBridgeJob((job) => {
   if (!job || !job.url) return;
   if (taskList.some(t => t.url === job.url && (t.status === 'downloading' || t.status === 'queued'))) return; // 중복 방지
+  const extra = {};
+  if (job.referer) extra.referer = job.referer;
+  if (job.userAgent) extra.userAgent = job.userAgent;
+  if (job.cookies) extra.cookies = job.cookies;
   const t = { id: crypto.randomUUID(), url: job.url, mode: job.mode || 'auto',
     status: 'queued', count: 0, bytes: 0, thumb: null, _pct: 0, _seq: seq++,
-    extra: job.referer ? { referer: job.referer } : null };
+    extra: Object.keys(extra).length ? extra : null };
   taskList.unshift(t); queue.push(t); render(); pump();
 });
 

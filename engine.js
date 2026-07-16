@@ -83,6 +83,7 @@ function ytdlpArgs(url, outDir, o) {
   );
   if (o.rateLimit) args.push('--limit-rate', o.rateLimit);
   if (o.referer) args.push('--referer', o.referer); // 야스닷컴 계열: 이 헤더 없으면 서버가 막는다
+  if (o.userAgent) args.push('--user-agent', o.userAgent); // 확장이 준 브라우저 UA(있을 때만)
   args.push(...cookieArgs(o.cookies, o.cookieFile));
   args.push(url);
   return args;
