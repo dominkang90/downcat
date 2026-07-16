@@ -17,22 +17,31 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 
-$ChromeForce = 'HKCU:\Software\Policies\Google\Chrome\ExtensionInstallForcelist'
-$EdgeForce   = 'HKCU:\Software\Policies\Microsoft\Edge\ExtensionInstallForcelist'
-$Chrome3p    = "HKCU:\Software\Policies\Google\Chrome\3rdparty\extensions\$ExtId\policy"
-$Edge3p      = "HKCU:\Software\Policies\Microsoft\Edge\3rdparty\extensions\$ExtId\policy"
+# HKLM(전 사용자 정책)에 쓴다 — 크롬은 HKCU\Software\Policies를 무시하는 경우가 많음. bat이 관리자로 실행하므로 HKLM 쓰기 가능.
+$ChromeForce = 'HKLM:\Software\Policies\Google\Chrome\ExtensionInstallForcelist'
+$EdgeForce   = 'HKLM:\Software\Policies\Microsoft\Edge\ExtensionInstallForcelist'
+$Chrome3p    = "HKLM:\Software\Policies\Google\Chrome\3rdparty\extensions\$ExtId\policy"
+$Edge3p      = "HKLM:\Software\Policies\Microsoft\Edge\3rdparty\extensions\$ExtId\policy"
+# 옛 버전이 HKCU에 남긴 값도 제거용으로 들고 있는다
+$ChromeForceHKCU = 'HKCU:\Software\Policies\Google\Chrome\ExtensionInstallForcelist'
+$EdgeForceHKCU   = 'HKCU:\Software\Policies\Microsoft\Edge\ExtensionInstallForcelist'
+$Chrome3pHKCU    = "HKCU:\Software\Policies\Google\Chrome\3rdparty\extensions\$ExtId\policy"
+$Edge3pHKCU      = "HKCU:\Software\Policies\Microsoft\Edge\3rdparty\extensions\$ExtId\policy"
 
 function Remove-ValueIfExists($key, $name) {
   if (Test-Path $key) { Remove-ItemProperty -Path $key -Name $name -ErrorAction SilentlyContinue }
 }
 
 if ($Uninstall) {
-  # 강제설치 목록에서 우리 항목(이름=확장ID)만 제거
+  # 강제설치 목록에서 우리 항목(이름=확장ID)만 제거 (HKLM + 옛 HKCU 둘 다)
   Remove-ValueIfExists $ChromeForce $ExtId
   Remove-ValueIfExists $EdgeForce   $ExtId
-  # managed 토큰 정책 키 제거
-  if (Test-Path $Chrome3p) { Remove-Item -Path $Chrome3p -Recurse -Force -ErrorAction SilentlyContinue }
-  if (Test-Path $Edge3p)   { Remove-Item -Path $Edge3p   -Recurse -Force -ErrorAction SilentlyContinue }
+  Remove-ValueIfExists $ChromeForceHKCU $ExtId
+  Remove-ValueIfExists $EdgeForceHKCU   $ExtId
+  # managed 토큰 정책 키 제거 (HKLM + 옛 HKCU)
+  foreach ($k in @($Chrome3p, $Edge3p, $Chrome3pHKCU, $Edge3pHKCU)) {
+    if (Test-Path $k) { Remove-Item -Path $k -Recurse -Force -ErrorAction SilentlyContinue }
+  }
   Write-Host '받냥이 확장 강제설치 정책 제거됨. (크롬/엣지 다시 시작 후 확장 사라짐)'
   return
 }
