@@ -8,6 +8,15 @@ if %errorlevel% NEQ 0 (
   exit /b
 )
 pushd "%~dp0"
+if not exist "build\downcat-ext.crx" (
+  echo.
+  echo [DownCat] This build does not include the signed browser extension.
+  echo Download the official release, or ask the distributor for a full build.
+  echo The desktop app can still be used without the extension.
+  echo.
+  pause
+  exit /b 1
+)
 echo.
 echo [DownCat] Installing the Chrome/Edge extension...
 powershell -NoProfile -ExecutionPolicy Bypass -File "scripts\downcat-ext-policy.ps1" -CrxPath "build\downcat-ext.crx" -ConfigPath "config.json"

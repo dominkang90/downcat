@@ -12,9 +12,19 @@ const keyPem = path.join(ROOT, 'build', 'extension-key.pem');
 const dest = path.join(ROOT, 'build', 'downcat-ext.crx');
 const chrome = process.env.CHROME
   || 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
+const optional = process.argv.includes('--optional');
 
-if (!fs.existsSync(keyPem)) throw new Error('build/extension-key.pem 없음 — 서명키부터 만들어야 함');
-if (!fs.existsSync(chrome)) throw new Error('Chrome을 못 찾음: ' + chrome + ' (CHROME 환경변수로 경로 지정 가능)');
+function skipOptionalPack(reason) {
+  if (!optional) throw new Error(reason);
+  // 이전 빌드의 CRX가 남아 있으면 잘못 포함될 수 있으므로 반드시 지운다.
+  try { fs.rmSync(dest, { force: true }); } catch {}
+  console.warn(`[DownCat] 확장 제외 빌드: ${reason}`);
+  console.warn('[DownCat] 앱 설치본은 계속 생성됩니다. 확장 포함 공식 배포는 서명키를 준비한 뒤 npm run dist:full을 사용하세요.');
+  process.exit(0);
+}
+
+if (!fs.existsSync(keyPem)) skipOptionalPack('build/extension-key.pem 없음');
+if (!fs.existsSync(chrome)) skipOptionalPack('Chrome을 못 찾음: ' + chrome + ' (CHROME 환경변수로 경로 지정 가능)');
 
 // 현재 실행 중인 Chrome과 안 부딪히게 임시 프로필로 pack만 수행
 const tmpProfile = fs.mkdtempSync(path.join(os.tmpdir(), 'downcat-pack-'));

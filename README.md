@@ -33,7 +33,10 @@ URL을 붙여넣으면 영상·이미지를 알아서 폴더로 정리해 받아
 - ⚠️ 소스 코드 ZIP(Code→Download ZIP)은 개발자용 — 아래 "처음 한 번 준비"가 필요하다.
 
 ## 처음 한 번 준비 (소스로 시작할 때)
-- `npm install` (electron 설치)
+- Windows PowerShell에서는 `npm.cmd install` 권장 (`npm`이 실행 정책으로 차단되는 PC 대응)
+- 설치본 만들기: `npm.cmd run dist`
+  - 공개 저장소에 없는 `build/extension-key.pem`이 없으면 브라우저 확장만 제외하고 앱 설치본은 정상 생성
+  - 공식 배포처럼 확장까지 포함하려면 서명키를 준비한 뒤 `npm.cmd run dist:full`
 - `bin/yt-dlp.exe` 수동 배치
 - gallery-dl: `bin/gallery-dl.exe`(gdl-org/builds 공식 빌드) 배치 또는 `pip install gallery-dl`
   (bin에 exe가 있으면 그걸 우선 쓰고, 없으면 python의 gallery-dl을 쓴다)
