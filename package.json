@@ -36,7 +36,8 @@
       "!test_*.js",
       "!bin/tools.json",
       "!bin/*.old-*",
-      "!bin/.downcat-tmp/**"
+      "!bin/.downcat-tmp/**",
+      "!logs/**"
     ],
     "win": {
       "target": [

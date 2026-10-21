@@ -2,6 +2,29 @@
 const { app, BrowserWindow, ipcMain, dialog, shell, session, clipboard, Notification, net } = require('electron');
 const fs = require('fs');
 const path = require('path');
+
+// ── 실행 기록(logs/main.log): 켜지다 꺼지는 등 문제가 생기면 이유를 파일로 남긴다 ──
+const LOG_FILE = path.join(__dirname, 'logs', 'main.log');
+function log(...parts) {
+  try {
+    fs.mkdirSync(path.dirname(LOG_FILE), { recursive: true });
+    try { if (fs.statSync(LOG_FILE).size > 1024 * 1024) fs.renameSync(LOG_FILE, LOG_FILE + '.old'); } catch {}
+    const line = parts.map(p => (p instanceof Error ? (p.stack || p.message) : typeof p === 'string' ? p : JSON.stringify(p))).join(' ');
+    fs.appendFileSync(LOG_FILE, `[${new Date().toISOString()}] ${line}\n`);
+  } catch {}
+}
+// 메인 프로세스 오류: 앱을 죽이지 않고 기록 + 한 번 알린다(예전엔 창이 그냥 사라질 수 있었음)
+let errorShown = false;
+function onFatal(kind, err) {
+  log(kind, err);
+  if (errorShown) return;
+  errorShown = true;
+  try { dialog.showErrorBox('받냥이 오류', `${(err && err.message) || err}\n\n자세한 내용: ${LOG_FILE}`); } catch {}
+}
+process.on('uncaughtException', (e) => onFatal('uncaughtException', e));
+process.on('unhandledRejection', (e) => onFatal('unhandledRejection', e));
+log('시작', { version: app.getVersion(), electron: process.versions.electron, os: `${process.platform} ${require('os').release()}`, dir: __dirname });
+
 const engine = require('./engine');
 const { createToolManager, toolsFor } = require('./tools');
 
@@ -44,13 +67,26 @@ const jobs = {}; // jobId -> AbortController (실행 중인 다운로드, 취소
 const BIN_DIR = path.join(__dirname, 'bin');
 engine.setBinDir(BIN_DIR);
 const tools = createToolManager({ binDir: BIN_DIR, fetch: (u, o) => net.fetch(u, o) });
+const lastToolLog = {};
 tools.on('change', (snap) => { // 설정 창·메인 창에 진행 상황 전달
   for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send('tools-changed', snap);
+  for (const t of snap) { // 도구마다 결과(설치됨/실패)가 바뀔 때만 기록
+    if (t.status !== 'ok' && t.status !== 'error') continue;
+    const s = t.status + (t.error ? ' ' + t.error : '') + (t.version ? ' ' + t.version : '');
+    if (lastToolLog[t.name] !== s) { lastToolLog[t.name] = s; log('도구', t.label, s); }
+  }
 });
 
+// 창·하위 프로세스가 비정상 종료되면 기록
+app.on('render-process-gone', (_e, _wc, d) => log('화면 프로세스 종료', d));
+app.on('child-process-gone', (_e, d) => log('하위 프로세스 종료', d));
+app.on('will-quit', () => log('종료'));
+
 // 이중 실행 방지: 두 번 켜면 새 창 대신 기존 창을 앞으로 (기록 파일 서로 덮어쓰기 방지)
-if (!app.requestSingleInstanceLock()) app.quit();
-else app.on('second-instance', () => {
+if (!app.requestSingleInstanceLock()) {
+  log('이미 켜진 받냥이가 있어 이번 실행은 닫음(작업 관리자에서 electron.exe 확인)');
+  app.quit();
+} else app.on('second-instance', () => {
   if (mainWin && !mainWin.isDestroyed()) { if (mainWin.isMinimized()) mainWin.restore(); mainWin.focus(); }
 });
 
@@ -62,6 +98,11 @@ function createWindow() {
     webPreferences: { preload: path.join(__dirname, 'preload.js') },
   });
   mainWin = win;
+  win.on('closed', () => log('메인 창 닫힘'));
+  win.webContents.on('did-fail-load', (_e, code, desc) => log('화면 불러오기 실패', code, desc));
+  win.webContents.on('console-message', (_e, level, message, line, src) => { // 화면 쪽 오류도 기록
+    if (level >= 3) log('화면 오류', `${message} (${path.basename(src || '')}:${line})`);
+  });
   win.loadFile('index.html');
   // 스모크 테스트: DOWNCAT_SMOKE=<url> 이면 창→엔진 경로를 실제 버튼 클릭으로 검증한다.
   if (process.env.DOWNCAT_SMOKE) {
