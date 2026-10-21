@@ -26,16 +26,45 @@ $('alwaysOnTop').onchange = () => save({ alwaysOnTop: $('alwaysOnTop').checked }
 $('notify').onchange = () => save({ notify: $('notify').checked });
 $('pick').onclick = async () => { const d = await window.api.pickFolder(); $('outdir').textContent = d; };
 
-// ffmpeg 상태/설치
-async function refreshFf() {
-  const has = await window.api.ffmpegStatus();
-  $('ffstatus').textContent = has ? 'ffmpeg 설치됨 ✓ (고화질 병합 가능)' : '고화질(1080p+) 병합엔 ffmpeg 필요';
-  $('ffinstall').style.display = has ? 'none' : '';
+// 다운로드 도구 상태 / [지금 모두 확인·업데이트]
+const TOOL_STATUS = {
+  ok: ['설치됨 ✓', 'st-ok'], missing: ['없음', 'st-bad'], checking: ['확인 중…', 'st-busy'],
+  downloading: ['받는 중', 'st-busy'], verifying: ['해시 확인 중…', 'st-busy'], installing: ['설치 중…', 'st-busy'],
+  error: ['설치 실패', 'st-bad'], manual: ['직접 설치(Windows 아님)', ''],
+};
+function renderTools(list) {
+  const t = $('tools'); t.innerHTML = '';
+  for (const it of list) {
+    const tr = document.createElement('tr');
+    const [txt, cls] = TOOL_STATUS[it.status] || [it.status, ''];
+    const ver = it.version || '-';
+    tr.innerHTML = '<td class="name"></td><td class="ver"></td><td class="st"></td>';
+    tr.querySelector('.name').textContent = it.label;
+    tr.querySelector('.ver').textContent = ver;
+    const st = tr.querySelector('.st');
+    st.textContent = txt + (it.status === 'downloading' && it.percent != null ? ` ${it.percent}%` : '');
+    st.className = 'st ' + cls;
+    if (it.error) st.title = it.error;
+    t.appendChild(tr);
+  }
+  const errs = list.filter(x => x.error);
+  $('toolsnote').textContent = errs.length ? '⚠ ' + errs.map(x => x.error).join(' / ') : '';
+  $('toolsnote').title = $('toolsnote').textContent;
 }
-refreshFf();
-$('ffinstall').onclick = async () => {
-  $('ffinstall').disabled = true; $('ffinstall').textContent = '설치 중… (약 40MB)';
-  const r = await window.api.installFfmpeg();
-  $('ffinstall').disabled = false; $('ffinstall').textContent = 'ffmpeg 설치';
-  if (r.ok) refreshFf(); else alert('설치 실패: ' + r.error);
+window.api.toolsStatus().then(renderTools);
+window.api.onToolsChanged(renderTools);
+$('toolsupdate').onclick = async () => {
+  const b = $('toolsupdate');
+  b.disabled = true; b.textContent = '확인 중…';
+  try {
+    const r = await window.api.updateTools();
+    const changed = r.filter(x => x.result === 'installed' || x.result === 'updated').map(x => x.name);
+    const failed = r.filter(x => x.result === 'error');
+    b.textContent = failed.length ? '일부 실패 — 다시 시도' : changed.length ? `업데이트 ${changed.length}개 완료 ✓` : '모두 최신 ✓';
+  } catch (e) {
+    b.textContent = '확인 실패 — 다시 시도';
+  } finally {
+    b.disabled = false;
+    setTimeout(() => { b.textContent = '지금 모두 확인·업데이트'; }, 4000);
+  }
 };

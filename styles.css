@@ -115,3 +115,10 @@ button { cursor: pointer; border: none; font: inherit; color: inherit; backgroun
 .tile .cap { font-size: 10px; color: var(--muted); padding: 4px 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tile:hover { border-color: var(--teal); }
 [hidden] { display: none !important; }
+
+/* 도구 설치 안내 줄 (메인 창) */
+.toolbanner { margin: 0 14px 6px; padding: 7px 12px; border-radius: 8px; font-size: 12px; background: #e8f1fb; color: #1565c0; cursor: pointer; }
+.toolbanner.bad { background: #fdecea; color: #b3261e; }
+/* 로그인이 필요해 보일 때 [🔑 로그인] 버튼을 깜빡여 알려준다 */
+.optrow .loginbtn.pulse { animation: pulse 1s ease-in-out 4; box-shadow: 0 0 0 2px #e0a53a; }
+@keyframes pulse { 50% { box-shadow: 0 0 0 5px rgba(224,165,58,.35); } }

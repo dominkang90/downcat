@@ -94,7 +94,8 @@ function cardHtml(t) {
 function fillCard(li, t) {
   li.className = 'task ' + t.status;
   li.querySelector('.title').textContent = t.url;
-  li.querySelector('.statusText').textContent = (STATUS_TEXT[t.status] || '') + (t.status === 'fail' && t.error ? ' · ' + t.error : '');
+  const showErr = t.error && (t.status === 'fail' || (t.status === 'partial' && t.needsLogin));
+  li.querySelector('.statusText').textContent = (STATUS_TEXT[t.status] || '') + (showErr ? ' · ' + t.error : '');
   li.querySelector('.cnt').textContent = t.count ? `🖼 ${t.count}p` : '';
   li.querySelector('.sz').textContent = t.bytes ? `⬇ ${fmtSize(t.bytes)}` : '';
   const bar = li.querySelector('.bar');
@@ -203,7 +204,10 @@ async function runOne(t) {
   const r = await window.api.download(t.id, t.url, t.mode, useCookie, thumbnail, t.extra)
     .catch(() => ({ ok: false, count: 0, bytes: 0 })); // IPC까지 죽어도 카드는 실패로 마감
   t.status = r.canceled ? 'canceled' : r.ok ? 'done' : (r.count > 0 ? 'partial' : 'fail');
-  t.count = r.count; t.bytes = r.bytes; t.error = r.error;
+  t.count = r.count; t.bytes = r.bytes; t.error = r.error; t.needsLogin = !!r.needsLogin;
+  if (r.needsLogin) { // 로그인이 필요해 보이면 [🔑 로그인] 버튼을 깜빡여 알려준다
+    const lb = $('instalogin'); lb.classList.remove('pulse'); void lb.offsetWidth; lb.classList.add('pulse');
+  }
   if (r.thumb) t.thumb = r.thumb; // 새 정보가 없으면 기존 썸네일·파일 유지 ('다시 받기'가 카드를 비우지 않게)
   if (r.file) t.file = r.file;
   if (els[t.id]) fillCard(els[t.id], t);
@@ -256,6 +260,7 @@ $('url').addEventListener('keydown', (e) => {
 window.api.onJobEvent((ev) => {
   const li = els[ev.jobId]; const t = taskList.find(x => x.id === ev.jobId);
   if (!li || !t) return;
+  if (ev.type === 'waiting') { li.querySelector('.statusText').textContent = '🔧 도구 설치 기다리는 중…'; return; }
   if (ev.type === 'progress' && ev.percent != null) {
     t._pct = ev.percent; li.querySelector('.bar').classList.remove('indet');
     li.querySelector('.bar').style.width = ev.percent + '%';
@@ -295,6 +300,26 @@ window.api.onBridgeJob((job) => {
     extra: Object.keys(extra).length ? extra : null };
   taskList.unshift(t); queue.push(t); render(); pump();
 });
+
+// 도구 설치 안내 줄: 설치·업데이트 중이거나 실패했을 때만 보인다(누르면 설정 창)
+const TOOL_BUSY = { checking: '확인 중', downloading: '받는 중', verifying: '해시 확인 중', installing: '설치 중' };
+function renderToolBanner(list) {
+  const el = $('toolbanner');
+  const busy = list.filter(x => TOOL_BUSY[x.status] && (x.status !== 'checking'));
+  const bad = list.filter(x => x.status === 'error' || x.status === 'missing');
+  if (busy.length) {
+    el.className = 'toolbanner';
+    el.textContent = '🔧 ' + busy.map(x => `${x.label} ${x.version ? '업데이트 ' : ''}${TOOL_BUSY[x.status]}${x.percent != null ? ' ' + x.percent + '%' : ''}`).join(' · ')
+      + (busy.some(x => !x.version) ? ' — 그동안 넣은 작업은 설치가 끝나면 시작해요' : ''); // 새 설치일 때만 작업이 기다린다
+  } else if (bad.some(x => x.status === 'error')) {
+    el.className = 'toolbanner bad';
+    el.textContent = '⚠ 도구 설치 실패: ' + bad.map(x => x.label).join(', ') + ' — 눌러서 설정에서 다시 시도';
+  } else { el.hidden = true; return; }
+  el.hidden = false;
+}
+$('toolbanner').onclick = () => window.api.openSettings();
+window.api.toolsStatus().then(renderToolBanner);
+window.api.onToolsChanged(renderToolBanner);
 
 // 시작 시 저장된 작업 복원
 (async () => {

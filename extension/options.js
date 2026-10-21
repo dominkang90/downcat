@@ -1,5 +1,5 @@
 'use strict';
-// 옵션 페이지: 토큰을 chrome.storage.local에 저장하고, /ping으로 받냥이 연결을 확인한다.
+// 옵션 페이지: [연결하기](받냥이 창에서 [예]만 누르면 끝) 또는 토큰 직접 붙여넣기. /ping으로 연결 확인.
 const BRIDGE = 'http://127.0.0.1:47653';
 const $ = (id) => document.getElementById(id);
 
@@ -8,6 +8,37 @@ chrome.storage.local.get('token').then(({ token }) => { if (token) $('token').va
 chrome.storage.managed.get('bridgeToken').then((m) => {
   if (m && m.bridgeToken) setStatus('설치기가 넣은 토큰으로 자동 연결됩니다(직접 안 넣어도 됨).', '#2e7d32');
 }).catch(() => {});
+
+// [연결하기]: 받냥이에 연결을 요청 → 받냥이 창에서 [예]를 누르면 토큰을 받아 저장한다.
+$('pair').addEventListener('click', async () => {
+  const btn = $('pair');
+  btn.disabled = true;
+  setStatus('받냥이 창에서 [예]를 눌러 주세요…', '#1565c0');
+  try {
+    const res = await fetch(`${BRIDGE}/pair`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{}',
+      signal: AbortSignal.timeout(120000), // 2분 안에 대답이 없으면 그만
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data.token) {
+      await chrome.storage.local.set({ token: data.token });
+      $('token').value = data.token;
+      setStatus('연결됐어요 ✅ 이제 우클릭 → "받냥이로 받기"를 쓰면 돼요.', '#2e7d32');
+    } else if (res.status === 404) {
+      setStatus('받냥이가 예전 버전이에요 — 받냥이를 업데이트하거나 아래에 토큰을 직접 넣어 주세요.', '#c62828');
+    } else {
+      setStatus(data.error || `연결 실패 (${res.status})`, '#c62828');
+    }
+  } catch (e) {
+    setStatus(e && e.name === 'TimeoutError'
+      ? '시간이 지났어요 — 다시 [연결하기]를 눌러 주세요.'
+      : '받냥이가 안 켜져 있어요 — 먼저 실행하세요.', '#c62828');
+  } finally {
+    btn.disabled = false;
+  }
+});
 
 $('save').addEventListener('click', async () => {
   const token = $('token').value.trim();

@@ -1,6 +1,9 @@
 node_modules/
 dist/
 bin/*.exe
+bin/*.old-*
+bin/tools.json
+bin/.downcat-tmp/
 downloads/
 thumbs/
 cookies/

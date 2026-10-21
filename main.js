@@ -1,8 +1,9 @@
 'use strict';
-const { app, BrowserWindow, ipcMain, dialog, shell, session, clipboard, Notification } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, session, clipboard, Notification, net } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const engine = require('./engine');
+const { createToolManager, toolsFor } = require('./tools');
 
 const CONFIG = path.join(__dirname, 'config.json');
 const TASKS = path.join(__dirname, 'tasks.json');
@@ -37,6 +38,15 @@ let bridgeServer = null;
 function saveCfg() { saveJson(CONFIG, settings); }
 let mainWin = null;
 const jobs = {}; // jobId -> AbortController (실행 중인 다운로드, 취소용)
+
+// 도구 관리자: yt-dlp·gallery-dl·ffmpeg·aria2 자동 설치/업데이트(해시 확인 후). Windows에서만 켜진다.
+// net.fetch = 크롬과 같은 네트워크(시스템 프록시 설정을 따름).
+const BIN_DIR = path.join(__dirname, 'bin');
+engine.setBinDir(BIN_DIR);
+const tools = createToolManager({ binDir: BIN_DIR, fetch: (u, o) => net.fetch(u, o) });
+tools.on('change', (snap) => { // 설정 창·메인 창에 진행 상황 전달
+  for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send('tools-changed', snap);
+});
 
 // 이중 실행 방지: 두 번 켜면 새 창 대신 기존 창을 앞으로 (기록 파일 서로 덮어쓰기 방지)
 if (!app.requestSingleInstanceLock()) app.quit();
@@ -74,6 +84,7 @@ function createWindow() {
 app.whenReady().then(() => {
   createWindow();
   startClipboardWatch();
+  tools.start().catch((e) => console.error('[tools]', e)); // 없는 도구 설치 + 하루 한 번 업데이트 확인
   // 로컬 브리지: 확장이 던진 URL을 clipboard-url과 같은 방식으로 창에 넣는다.
   bridgeServer = require('./bridge').createBridgeServer({
     token: settings.bridgeToken,
@@ -82,8 +93,11 @@ app.whenReady().then(() => {
       mainWin.webContents.send('bridge-job', job);
       return true;
     },
+    // 확장의 [연결하기]: 받냥이 창을 앞으로 띄우고 [예]를 누를 때만 토큰을 건넨다.
+    onPair: ({ extensionId }) => askPair(extensionId),
     // 확장 패널이 요청한 영상 포맷 목록을 yt-dlp로 캐서 돌려준다(확장 쿠키가 있으면 임시로 굽는다).
     onProbe: async (job) => {
+      await tools.whenReady(); // 도구 설치 중이면 끝날 때까지 기다린다
       let ck = null;
       if (job.cookies && job.cookies.length) {
         try {
@@ -101,9 +115,33 @@ app.whenReady().then(() => {
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
+
+// 설치 파일에 들어 있는 공식 확장의 ID (manifest.json의 key로 계산 — 크롬과 같은 방식)
+let OFFICIAL_EXT_ID = null;
+try { OFFICIAL_EXT_ID = require('./bridge').extensionIdFromKey(require('./extension/manifest.json').key); } catch {}
+
+// 확장 연결 요청 확인창. 브라우저를 보고 있던 사용자에게 받냥이 창을 앞으로 띄워 묻는다.
+async function askPair(extensionId) {
+  if (!mainWin || mainWin.isDestroyed()) return false;
+  if (mainWin.isMinimized()) mainWin.restore();
+  mainWin.show(); mainWin.focus(); mainWin.flashFrame(true);
+  const official = extensionId === OFFICIAL_EXT_ID;
+  const { response } = await dialog.showMessageBox(mainWin, {
+    type: official ? 'question' : 'warning',
+    title: '확장 연결',
+    message: '브라우저 확장이 받냥이와 연결하려고 해요. 연결할까요?',
+    detail: (official
+      ? '받냥이 공식 확장이에요.'
+      : '⚠ 받냥이 공식 확장과 ID가 달라요. 방금 직접 [연결하기]를 누른 게 아니라면 [아니요]를 누르세요.')
+      + `\n확장 ID: ${extensionId}\n\n[예]를 누르면 이 확장이 받냥이로 다운로드를 보낼 수 있어요.`,
+    buttons: ['예', '아니요'], defaultId: official ? 0 : 1, cancelId: 1, noLink: true,
+  });
+  mainWin.flashFrame(false);
+  return response === 0;
+}
 // 앱을 닫으면 진행 중이던 다운로드 프로세스도 같이 끝낸다 (윈도우는 자식 프로세스가 저절로 안 죽음).
 // ponytail: yt-dlp가 띄운 ffmpeg 손자 프로세스까지는 못 죽임 — 병합 몇 초짜리라 감수
-app.on('before-quit', () => { for (const id in jobs) jobs[id].abort(); if (bridgeServer) bridgeServer.close(); });
+app.on('before-quit', () => { for (const id in jobs) jobs[id].abort(); if (bridgeServer) bridgeServer.close(); tools.stop(); });
 
 // 클립보드 감시: autoClip이 켜져 있으면 새 URL이 복사될 때 창에 알려 자동 추가.
 let lastClip = '';
@@ -160,72 +198,16 @@ ipcMain.handle('set-task-label', (e, id, label) => {
   if (t) { t.label = label; saveJson(TASKS, tasks); }
 });
 
-// ffmpeg (유튜브 고화질 병합용) 상태 확인 / 설치
-const FFMPEG = path.join(__dirname, 'bin', 'ffmpeg.exe');
-ipcMain.handle('ffmpeg-status', () => fs.existsSync(FFMPEG));
-ipcMain.handle('install-ffmpeg', async () => {
-  const { execFile } = require('child_process');
-  const url = 'https://github.com/yt-dlp/FFmpeg-Builds/releases/latest/download/ffmpeg-master-latest-win64-gpl.zip';
-  const tmpDir = path.join(app.getPath('temp'), 'downcat-ffmpeg');
-  const zip = tmpDir + '.zip';
-  try {
-    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
-    const ps = `$ErrorActionPreference='Stop'; Invoke-WebRequest -Uri '${url}' -OutFile '${zip}'; Expand-Archive -Path '${zip}' -DestinationPath '${tmpDir}' -Force`;
-    await new Promise((res, rej) => execFile('powershell', ['-NoProfile', '-Command', ps], { maxBuffer: 1 << 28 }, (e) => e ? rej(e) : res()));
-    let found = null;
-    (function walkFor(d) {
-      for (const e of fs.readdirSync(d, { withFileTypes: true })) {
-        const f = path.join(d, e.name);
-        if (e.isDirectory()) walkFor(f);
-        else if (!found && e.name.toLowerCase() === 'ffmpeg.exe') found = f;
-      }
-    })(tmpDir);
-    if (!found) throw new Error('압축 안에서 ffmpeg.exe를 못 찾음');
-    fs.mkdirSync(path.dirname(FFMPEG), { recursive: true });
-    fs.copyFileSync(found, FFMPEG);
-    try { fs.rmSync(tmpDir, { recursive: true, force: true }); fs.rmSync(zip, { force: true }); } catch {}
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, error: String(err && err.message || err) };
-  }
-});
-
-// aria2c (일반 파일 가속 다운로드용) 상태 확인 / 자동 설치 — ffmpeg 패턴과 동일
-const ARIA2C = path.join(__dirname, 'bin', 'aria2c.exe');
-ipcMain.handle('aria2-status', () => fs.existsSync(ARIA2C));
-ipcMain.handle('install-aria2', async () => {
-  const { execFile } = require('child_process');
-  const url = 'https://github.com/aria2/aria2/releases/download/release-1.37.0/aria2-1.37.0-win-64bit-build1.zip';
-  const tmpDir = path.join(app.getPath('temp'), 'downcat-aria2');
-  const zip = tmpDir + '.zip';
-  try {
-    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
-    const ps = `$ErrorActionPreference='Stop'; Invoke-WebRequest -Uri '${url}' -OutFile '${zip}'; Expand-Archive -Path '${zip}' -DestinationPath '${tmpDir}' -Force`;
-    await new Promise((res, rej) => execFile('powershell', ['-NoProfile', '-Command', ps], { maxBuffer: 1 << 28 }, (e) => e ? rej(e) : res()));
-    let found = null;
-    (function walkFor(d) {
-      for (const e of fs.readdirSync(d, { withFileTypes: true })) {
-        const f = path.join(d, e.name);
-        if (e.isDirectory()) walkFor(f);
-        else if (!found && e.name.toLowerCase() === 'aria2c.exe') found = f;
-      }
-    })(tmpDir);
-    if (!found) throw new Error('압축 안에서 aria2c.exe를 못 찾음');
-    fs.mkdirSync(path.dirname(ARIA2C), { recursive: true });
-    fs.copyFileSync(found, ARIA2C);
-    try { fs.rmSync(tmpDir, { recursive: true, force: true }); fs.rmSync(zip, { force: true }); } catch {}
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, error: String(err && err.message || err) };
-  }
-});
+// 도구 상태 / [지금 모두 확인·업데이트]
+ipcMain.handle('tools-status', () => tools.snapshot());
+ipcMain.handle('tools-update-all', () => tools.checkAll({ force: true }));
 
 // 설정 창
 let settingsWin = null;
 ipcMain.handle('open-settings', () => {
   if (settingsWin && !settingsWin.isDestroyed()) { settingsWin.focus(); return; }
   settingsWin = new BrowserWindow({
-    width: 480, height: 600, title: '설정', parent: mainWin, resizable: false,
+    width: 500, height: 760, title: '설정', parent: mainWin, resizable: true,
     webPreferences: { preload: path.join(__dirname, 'preload.js') },
   });
   settingsWin.setMenuBarVisibility(false);
@@ -312,6 +294,15 @@ ipcMain.handle('download', async (e, { jobId, url, mode, useCookie, thumbnail, e
   const send = (ev) => { if (!e.sender.isDestroyed()) e.sender.send('job-event', { jobId, ...ev }); }; // 종료 중 창 사라짐 방어
   const ac = new AbortController();
   jobs[jobId] = ac;
+  // 이 작업이 쓸 도구를 설치하는 중이면, 설치가 끝날 때까지 기다렸다가 받는다(그동안 취소도 가능)
+  const need = toolsFor(engine.pickTool(url, mode || 'auto'));
+  if (!tools.isReady(need)) {
+    send({ type: 'waiting', line: '도구 설치가 끝나면 시작해요' });
+    await Promise.race([
+      tools.whenReady(need),
+      new Promise((res) => ac.signal.addEventListener('abort', res, { once: true })),
+    ]);
+  }
   // 확장이 보낸 브라우저 쿠키가 있으면 이 작업만 쓸 임시 cookies.txt로 굽는다. 민감하므로 끝나면 지운다.
   let jobCookieFile = null;
   if (extra && Array.isArray(extra.cookies) && extra.cookies.length) {
@@ -341,7 +332,7 @@ ipcMain.handle('download', async (e, { jobId, url, mode, useCookie, thumbnail, e
   const status = result.canceled ? 'canceled' : result.ok ? 'done' : (result.count > 0 ? 'partial' : 'fail');
   const record = { id: jobId, url, mode, tool: result.tool, status,
     count: result.count, bytes: result.bytes, thumb: result.thumb, file: result.file,
-    error: result.error, at: new Date().toISOString() };
+    error: result.error, needsLogin: !!result.needsLogin, at: new Date().toISOString() };
   const tasks = loadJson(TASKS, []);
   tasks.unshift(record);
   saveJson(TASKS, tasks.slice(0, 500));

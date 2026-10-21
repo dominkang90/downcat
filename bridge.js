@@ -49,13 +49,37 @@ function isAllowedOrigin(origin) {
   return origin === undefined || origin.startsWith('chrome-extension://');
 }
 
+// 위장 요청 차단(DNS 리바인딩 방어): 악성 웹페이지가 evil.com 주소를 127.0.0.1로 돌려 붙어도
+// 브라우저는 Host 헤더에 evil.com을 그대로 싣는다. 그래서 Host가 정확히 우리 주소일 때만 받는다.
+function isAllowedHost(host, port) {
+  if (typeof host !== 'string') return false;
+  const h = host.toLowerCase();
+  return h === `127.0.0.1:${port}` || h === `localhost:${port}`;
+}
+
+// 'chrome-extension://<id>' → '<id>' (형식이 다르면 null)
+function extensionIdFromOrigin(origin) {
+  const m = /^chrome-extension:\/\/([a-p]{32})\/?$/.exec(origin || '');
+  return m ? m[1] : null;
+}
+
+// manifest.json의 "key"(공개키, base64)로 확장 ID를 계산한다(크롬과 같은 방식: SHA-256 앞 16바이트를 a~p로).
+function extensionIdFromKey(keyBase64) {
+  const hash = require('crypto').createHash('sha256').update(Buffer.from(keyBase64, 'base64')).digest('hex');
+  return [...hash.slice(0, 32)].map(c => String.fromCharCode(97 + parseInt(c, 16))).join('');
+}
+
 const HOST = '127.0.0.1';   // 루프백 전용 — 외부에서 접근 불가(보안 핵심)
 const PORT = 47653;
 const MAX_BODY = 64 * 1024; // 본문 상한 64KB
 
 // 확장이 던진 요청을 받는 서버를 만든다. onJob(job)이 창에 전달 성공하면 true.
 // onProbe(job) -> Promise<formats>: 영상 포맷 목록을 캐서 돌려준다(선택).
-function createBridgeServer({ token, onJob, onProbe }) {
+// onPair({extensionId, origin}) -> Promise<boolean>: [연결하기] 요청을 사용자에게 묻는다(예=true).
+// port/host는 테스트용(기본 127.0.0.1:47653). port 0이면 빈 포트를 자동으로 고른다.
+function createBridgeServer({ token, onJob, onProbe, onPair, port = PORT, host = HOST }) {
+  let pairPending = false;  // 확인창은 한 번에 하나만
+  let pairCooldownUntil = 0; // 거절 직후 잠깐은 다시 못 묻게(확인창 도배 방지)
   const server = http.createServer((req, res) => {
     const origin = req.headers.origin;
     // 확장 요청이면 CORS 헤더를 붙인다(Private Network Access 프리플라이트 포함)
@@ -69,8 +93,29 @@ function createBridgeServer({ token, onJob, onProbe }) {
     };
     const send = (code, obj) => { setCors(); res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(obj)); };
 
+    const listenPort = server.address() && server.address().port;
+    if (!isAllowedHost(req.headers.host, listenPort)) { send(403, { ok: false, error: 'host 거부' }); return; }
     if (req.method === 'OPTIONS') { setCors(); res.writeHead(204); res.end(); return; }
     if (req.method === 'GET' && req.url === '/ping') { send(200, { ok: true, app: 'downcat' }); return; }
+    // POST /pair: 확장의 [연결하기]. 토큰 없이 오지만, 받냥이 창에서 사용자가 [예]를 눌러야만 토큰을 준다.
+    if (req.method === 'POST' && req.url === '/pair') {
+      const extensionId = extensionIdFromOrigin(origin); // 웹페이지는 Origin을 chrome-extension://으로 못 바꾼다
+      if (!extensionId) { send(403, { ok: false, error: '확장에서만 연결할 수 있어요' }); return; }
+      if (!onPair) { send(501, { ok: false, error: '연결하기 미지원' }); return; }
+      if (pairPending) { send(429, { ok: false, error: '이미 받냥이 창에서 확인을 기다리는 중이에요' }); return; }
+      if (Date.now() < pairCooldownUntil) { send(429, { ok: false, error: '조금 뒤에 다시 시도해 주세요' }); return; }
+      req.resume(); // 본문은 안 쓴다
+      pairPending = true;
+      Promise.resolve()
+        .then(() => onPair({ extensionId, origin }))
+        .then((approved) => {
+          if (approved) send(200, { ok: true, token });
+          else { pairCooldownUntil = Date.now() + 10000; send(403, { ok: false, error: '받냥이에서 [아니요]를 눌렀어요' }); }
+        })
+        .catch((e) => send(500, { ok: false, error: String((e && e.message) || e) }))
+        .finally(() => { pairPending = false; });
+      return;
+    }
     // POST /add(다운로드 넣기) 와 /formats(포맷 목록 조회)는 같은 보안검사·본문읽기를 공유한다.
     if (req.method === 'POST' && (req.url === '/add' || req.url === '/formats')) {
       if (origin !== undefined && !isAllowedOrigin(origin)) { send(403, { ok: false, error: 'origin 거부' }); return; }
@@ -102,10 +147,12 @@ function createBridgeServer({ token, onJob, onProbe }) {
   });
   // ponytail: 포트 점유 시 앱이 죽지 않게 에러만 로그(확장은 연결 실패로 감지). 재바인드는 안 함.
   server.on('error', (e) => console.error('[bridge] 포트 열기 실패:', e.message));
-  server.listen(PORT, HOST);
+  server.listen(port, host);
   return server;
 }
 
 // 📌 이 코드가 하는 일: 받냥이 안에 아주 작은 우체통(127.0.0.1:47653)을 연다. 확장이 여기로 편지(POST /add)를 넣되 **열쇠(토큰)**가 맞아야 접수하고, 맞으면 주문표를 창에 전달한다. `/ping`은 "받냥이 살아있어?" 확인용.
+// `/pair`는 열쇠가 없는 확장이 "열쇠 주세요"라고 하는 창구 — 받냥이 창에서 사람이 [예]를 눌러야만 열쇠를 건넨다.
+// 모든 요청은 받는 주소(Host)가 정확히 127.0.0.1/localhost일 때만 받는다(다른 주소로 위장한 요청 차단).
 
-module.exports = { parseAddBody, isAllowedOrigin, createBridgeServer };
+module.exports = { parseAddBody, isAllowedOrigin, isAllowedHost, extensionIdFromOrigin, extensionIdFromKey, createBridgeServer, PORT };

@@ -87,7 +87,7 @@ function browserDownloadable(url, mode) {
 // 영상 포맷 목록을 받냥이 앱(yt-dlp)에 물어본다. 앱이 있어야 함(확장 혼자선 못 캠).
 async function probeViaBridge(url, tab) {
   const token = await getToken();
-  if (!token) return { ok: false, error: '토큰 없음 — 옵션에서 설정' };
+  if (!token) return { ok: false, error: '받냥이와 연결 안 됨 — 확장 옵션에서 [연결하기]' };
   const referer = tab && tab.url && /^https?:/i.test(tab.url) ? tab.url : undefined;
   try {
     // 쿠키는 안 보낸다 — 유튜브는 로그인 쿠키가 있으면 인증 클라이언트로 붙어 "포맷 없음"이 난다.
@@ -96,7 +96,7 @@ async function probeViaBridge(url, tab) {
       headers: { 'Content-Type': 'application/json', 'X-Downcat-Token': token },
       body: JSON.stringify({ url, referer, userAgent: navigator.userAgent }),
     });
-    if (res.status === 403) return { ok: false, error: '토큰 불일치 — 옵션에서 다시' };
+    if (res.status === 403) return { ok: false, error: '토큰 불일치 — 확장 옵션에서 [연결하기]' };
     if (res.status === 503) return { ok: false, error: '받냥이 창을 켜주세요' };
     if (!res.ok) return { ok: false, error: '조회 실패(' + res.status + ')' };
     return await res.json();
@@ -123,7 +123,7 @@ async function sendToDowncat(url, mode, tab, format) {
         body,
       });
       if (res.ok) { flash('받냥이에 보냈어요 ✅', '✓'); return { ok: true, via: 'app' }; }
-      if (res.status === 403) { flash('토큰이 안 맞아요 — 옵션에서 다시'); return { ok: false, error: '토큰 불일치 — 옵션에서 다시' }; }
+      if (res.status === 403) { flash('연결이 끊겼어요 — 옵션에서 [연결하기]'); return { ok: false, error: '토큰 불일치 — 확장 옵션에서 [연결하기]를 다시 눌러 주세요' }; }
       // 503(창 준비 안 됨) 등은 아래 브라우저 폴백으로
     } catch { /* 앱 꺼짐 → 폴백 */ }
   }

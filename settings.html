@@ -14,6 +14,14 @@
     .path { flex: 1; color: #6b727b; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .ghost { background: #eef1f3; border-radius: 8px; padding: 6px 12px; }
     .ghost:hover { background: #e3e7ea; }
+    .ghost:disabled { opacity: .6; }
+    .hint { font-weight: 400; font-size: 11px; color: #8a929b; margin-left: 4px; }
+    .tools { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 4px; }
+    .tools td { padding: 5px 2px; border-bottom: 1px solid var(--border); }
+    .tools td.name { font-weight: 600; width: 80px; }
+    .tools td.ver { color: #6b727b; font-family: ui-monospace, Consolas, monospace; font-size: 11px; }
+    .tools td.st { text-align: right; white-space: nowrap; }
+    .st-ok { color: #2e7d32; } .st-busy { color: #1565c0; } .st-bad { color: #c62828; }
   </style>
 </head>
 <body>
@@ -38,9 +46,14 @@
         <option value="720">720p</option>
       </select>
     </div>
+  </div>
+
+  <div class="group">
+    <h3>다운로드 도구 <span class="hint">자동 설치 · 하루 한 번 업데이트 확인 · 원본 해시 확인 후 설치</span></h3>
+    <table class="tools" id="tools"></table>
     <div class="field">
-      <span class="path" id="ffstatus">고화질(1080p+) 병합엔 ffmpeg 필요</span>
-      <button id="ffinstall" class="ghost">ffmpeg 설치</button>
+      <span class="path" id="toolsnote"></span>
+      <button id="toolsupdate" class="ghost">지금 모두 확인·업데이트</button>
     </div>
   </div>
 

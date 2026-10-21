@@ -1,11 +1,12 @@
 {
   "name": "downcat",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "받냥이 - URL 붙여넣으면 영상/이미지를 폴더로 정리해 받는 바탕화면 다운로더",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "dl": "node engine.js",
+    "test": "node --test test_aria2.js test_bridge.js test_engine.js test/engine-cases.test.js test/encoding-real.test.js test/tools.test.js test/bridge-pair.test.js",
     "pack-crx": "node scripts/pack-crx.js",
     "dist": "node scripts/pack-crx.js && electron-builder --win nsis"
   },
@@ -30,7 +31,12 @@
       "!config.json",
       "!tasks.json",
       "!**/*.md",
-      "!받냥이.bat"
+      "!받냥이.bat",
+      "!test/**",
+      "!test_*.js",
+      "!bin/tools.json",
+      "!bin/*.old-*",
+      "!bin/.downcat-tmp/**"
     ],
     "win": {
       "target": [

@@ -63,7 +63,7 @@ console.log('ok - parseAddBody, isAllowedOrigin');
 
   let onJobCalled = false;
   const server = createBridgeServer({
-    token: 'T',
+    token: 'T', port: 0, // 빈 포트 — 받냥이를 켜 둔 채로 테스트해도 안 부딪힘
     onJob: () => { onJobCalled = true; return true; },
   });
 
@@ -72,7 +72,7 @@ console.log('ok - parseAddBody, isAllowedOrigin');
     server.once('error', reject);
   });
 
-  const BASE = 'http://127.0.0.1:47653';
+  const BASE = `http://127.0.0.1:${server.address().port}`;
   const failures = [];
   const check = (cond, label) => { if (!cond) failures.push(label); };
 

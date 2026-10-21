@@ -13,19 +13,26 @@
     code { background: #f0f0f0; padding: 1px 5px; border-radius: 3px; }
     #status { margin-top: 12px; font-weight: 600; }
     ol { padding-left: 20px; line-height: 1.6; }
+    .primary { background: #0f8b8d; color: #fff; border: 0; border-radius: 8px; padding: 10px 18px; font-size: 15px; font-weight: 600; }
+    .primary:disabled { opacity: .6; cursor: default; }
+    details { margin-top: 22px; }
+    summary { cursor: pointer; }
   </style>
 </head>
 <body>
   <h1>받냥이 확장 설정</h1>
-  <p class="hint">받냥이가 발급한 <b>토큰</b>을 붙여넣어 짝을 맞춥니다. 토큰이 맞아야 다운로드가 전달됩니다.</p>
+  <p class="hint">받냥이를 켜 둔 채로 <b>[연결하기]</b>를 누르고, 받냥이 창에 뜨는 확인창에서 <b>[예]</b>를 누르면 끝이에요.</p>
+  <button id="pair" class="primary">🔗 연결하기</button>
+  <div id="status"></div>
 
+  <details>
+    <summary class="hint">직접 토큰 넣기 (예전 방식)</summary>
   <label for="token">브리지 토큰</label>
   <input id="token" type="text" placeholder="받냥이 config.json의 bridgeToken 값" autocomplete="off">
   <div>
     <button id="save">저장</button>
     <button id="test">연결 확인</button>
   </div>
-  <div id="status"></div>
 
   <label>토큰은 어디서 찾나요?</label>
   <ol class="hint">
@@ -34,6 +41,7 @@
       <br>PowerShell: <code>(Get-Content config.json -Raw | ConvertFrom-Json).bridgeToken</code></li>
     <li>여기에 붙여넣고 <b>저장</b> → <b>연결 확인</b>을 누릅니다.</li>
   </ol>
+  </details>
 
   <script src="options.js"></script>
 </body>

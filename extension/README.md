@@ -13,8 +13,8 @@
 ## 방법 B — 수동 로드 (권한 없이, 개발자모드)
 1. 크롬 `chrome://extensions` (엣지 `edge://extensions`) → **개발자 모드** 켜기.
 2. **"압축해제된 확장 프로그램 로드"** → 이 `extension` 폴더 선택.
-3. 확장 옵션에서 받냥이 토큰 붙여넣기(`config.json`의 `bridgeToken`).
-   - PowerShell: `(Get-Content config.json -Raw | ConvertFrom-Json).bridgeToken`
+3. 확장 옵션 → **[🔗 연결하기]** → 받냥이 창에서 **[예]**.
+   - (예전 방식) 옵션의 "직접 토큰 넣기"에 `config.json`의 `bridgeToken` 붙여넣기.
 
 ## 쓰는 법
 - 링크·이미지·영상 위 우클릭 → **"받냥이로 받기"**.
