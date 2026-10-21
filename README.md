@@ -33,7 +33,8 @@ URL을 붙여넣으면 영상·이미지를 알아서 폴더로 정리해 받아
 - ⚠️ 소스 코드 ZIP(Code→Download ZIP)은 개발자용 — 아래 "처음 한 번 준비"가 필요하다.
 
 ## 처음 한 번 준비 (소스로 시작할 때)
-- `npm install` (electron 설치)
+- [Node.js LTS](https://nodejs.org) 설치 → `받냥이.bat` 더블클릭. 처음 한 번은 실행 엔진(Electron)을 자동으로 깐다(1~3분).
+  (직접 하려면 이 폴더에서 `npm install`)
 - 끝. 도구(yt-dlp·gallery-dl·ffmpeg·aria2)는 받냥이를 켜면 `bin/`에 자동으로 깔린다.
 - 테스트: `npm test` (가짜 도구·가짜 GitHub로 경우별 시험 + 도구가 있으면 실제 도구로 한글 경로 확인)
 
