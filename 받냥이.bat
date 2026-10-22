@@ -2,8 +2,16 @@
 setlocal
 cd /d "%~dp0"
 
-rem First run from source (ZIP / git): Electron is not installed yet -> install it once.
-if exist ".\node_modules\electron\dist\electron.exe" goto run
+rem Electron missing or a different version than package.json -> (re)install it once.
+rem (Old Electron 32 crashes on new Windows builds: blank white window that closes.)
+if not exist ".\node_modules\electron\dist\electron.exe" goto install
+where node >nul 2>&1
+if errorlevel 1 goto run
+node -e "process.exit(require('./node_modules/electron/package.json').version===require('./package.json').devDependencies.electron?0:1)" >nul 2>&1
+if errorlevel 1 goto install
+goto run
+
+:install
 
 where npm >nul 2>&1
 if errorlevel 1 (
@@ -18,7 +26,7 @@ if errorlevel 1 (
 )
 
 echo.
-echo [DownCat] First run: installing Electron (about 1-3 minutes, once only)...
+echo [DownCat] Installing / updating Electron (about 1-3 minutes, once only)...
 echo.
 call npm install
 if errorlevel 1 goto failed

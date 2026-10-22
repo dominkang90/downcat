@@ -19,7 +19,10 @@ function onFatal(kind, err) {
   log(kind, err);
   if (errorShown) return;
   errorShown = true;
-  try { dialog.showErrorBox('받냥이 오류', `${(err && err.message) || err}\n\n자세한 내용: ${LOG_FILE}`); } catch {}
+  // showErrorBox는 창을 닫을 때까지 앱 전체를 멈추므로, 멈추지 않는 알림창을 쓴다(준비 전이면 준비된 뒤에)
+  const show = () => dialog.showMessageBox({ type: 'error', title: '받냥이 오류',
+    message: `${(err && err.message) || err}`, detail: `자세한 내용: ${LOG_FILE}` }).catch(() => {});
+  if (app.isReady()) show(); else app.whenReady().then(show);
 }
 process.on('uncaughtException', (e) => onFatal('uncaughtException', e));
 process.on('unhandledRejection', (e) => onFatal('unhandledRejection', e));
@@ -100,8 +103,8 @@ function createWindow() {
   mainWin = win;
   win.on('closed', () => log('메인 창 닫힘'));
   win.webContents.on('did-fail-load', (_e, code, desc) => log('화면 불러오기 실패', code, desc));
-  win.webContents.on('console-message', (_e, level, message, line, src) => { // 화면 쪽 오류도 기록
-    if (level >= 3) log('화면 오류', `${message} (${path.basename(src || '')}:${line})`);
+  win.webContents.on('console-message', (e) => { // 화면 쪽 오류도 기록 (Electron 35+는 이벤트 객체에 담겨 온다)
+    if (e.level === 'error') log('화면 오류', `${e.message} (${path.basename(e.sourceId || '')}:${e.lineNumber})`);
   });
   win.loadFile('index.html');
   // 스모크 테스트: DOWNCAT_SMOKE=<url> 이면 창→엔진 경로를 실제 버튼 클릭으로 검증한다.
@@ -186,15 +189,23 @@ app.on('before-quit', () => { for (const id in jobs) jobs[id].abort(); if (bridg
 
 // 클립보드 감시: autoClip이 켜져 있으면 새 URL이 복사될 때 창에 알려 자동 추가.
 let lastClip = '';
-function startClipboardWatch() {
-  lastClip = (clipboard.readText() || '').trim(); // 앱 켜기 전에 복사해둔 링크는 무시
-  setInterval(() => {
-    if (!settings.autoClip || !mainWin || mainWin.isDestroyed()) return;
-    const t = (clipboard.readText() || '').trim();
-    if (t && t !== lastClip && /^https?:\/\/\S+$/.test(t)) {
-      lastClip = t;
-      mainWin.webContents.send('clipboard-url', t);
-    }
+// Electron 44부터 clipboard.readText()가 약속(Promise)을 돌려준다 — 옛 버전(문자열)도 같이 받는다.
+async function readClip() {
+  try { return String((await clipboard.readText()) || '').trim(); } catch { return ''; }
+}
+async function startClipboardWatch() {
+  lastClip = await readClip(); // 앱 켜기 전에 복사해둔 링크는 무시
+  let busy = false;
+  setInterval(async () => {
+    if (busy || !settings.autoClip || !mainWin || mainWin.isDestroyed()) return;
+    busy = true;
+    try {
+      const t = await readClip();
+      if (t && t !== lastClip && /^https?:\/\/\S+$/.test(t)) {
+        lastClip = t;
+        if (!mainWin.isDestroyed()) mainWin.webContents.send('clipboard-url', t);
+      }
+    } finally { busy = false; }
   }, 1000);
 }
 

@@ -11,7 +11,7 @@
     "dist": "node scripts/pack-crx.js && electron-builder --win nsis"
   },
   "devDependencies": {
-    "electron": "^32.0.0",
+    "electron": "44.9.0",
     "electron-builder": "^25.1.8"
   },
   "build": {
