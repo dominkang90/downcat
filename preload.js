@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld('api', {
   listGallery: () => ipcRenderer.invoke('list-gallery'),
   showItem: (p) => ipcRenderer.invoke('open-path', p),
   openSettings: () => ipcRenderer.invoke('open-settings'),
+  openExtInstaller: () => ipcRenderer.invoke('open-ext-installer'),
   toolsStatus: () => ipcRenderer.invoke('tools-status'),
   updateTools: () => ipcRenderer.invoke('tools-update-all'),
   onToolsChanged: (cb) => ipcRenderer.on('tools-changed', (_e, snap) => cb(snap)),

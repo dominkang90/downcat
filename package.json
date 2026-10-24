@@ -8,11 +8,13 @@
     "dl": "node engine.js",
     "test": "node --test test_aria2.js test_bridge.js test_engine.js test/engine-cases.test.js test/encoding-real.test.js test/tools.test.js test/bridge-pair.test.js",
     "pack-crx": "node scripts/pack-crx.js",
-    "dist": "node scripts/pack-crx.js && electron-builder --win nsis"
+    "dist": "node scripts/pack-crx.js && electron-builder --win nsis",
+    "dist:app": "electron-builder --win nsis --x64"
   },
   "devDependencies": {
     "electron": "44.9.0",
-    "electron-builder": "^25.1.8"
+    "electron-builder": "^25.1.8",
+    "resedit": "3.1.0"
   },
   "build": {
     "appId": "com.downcat.app",

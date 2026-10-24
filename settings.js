@@ -68,3 +68,6 @@ $('toolsupdate').onclick = async () => {
     setTimeout(() => { b.textContent = '지금 모두 확인·업데이트'; }, 4000);
   }
 };
+
+// 브라우저 확장 설치 도우미(받냥이-확장설치.bat) 실행
+$('extinstall').onclick = () => window.api.openExtInstaller();

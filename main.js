@@ -4,7 +4,11 @@ const fs = require('fs');
 const path = require('path');
 
 // ── 실행 기록(logs/main.log): 켜지다 꺼지는 등 문제가 생기면 이유를 파일로 남긴다 ──
-const LOG_FILE = path.join(__dirname, 'logs', 'main.log');
+// 사용자 데이터를 둘 곳. 설치판(설치 프로그램)은 업데이트·제거 때 설치 폴더가 통째로 지워지므로
+// %APPDATA%\downcat에 두고, 받은 파일 기본 위치는 "다운로드\받냥이"로 한다.
+// 소스에서 받냥이.bat으로 켤 때는 예전처럼 이 폴더 안에 둔다.
+const DATA_DIR = app.isPackaged ? app.getPath('userData') : __dirname;
+const LOG_FILE = path.join(DATA_DIR, 'logs', 'main.log');
 function log(...parts) {
   try {
     fs.mkdirSync(path.dirname(LOG_FILE), { recursive: true });
@@ -29,15 +33,15 @@ process.on('unhandledRejection', (e) => onFatal('unhandledRejection', e));
 log('시작', { version: app.getVersion(), electron: process.versions.electron, os: `${process.platform} ${require('os').release()}`, mode: process.env.DOWNCAT_LAUNCH_MODE || '직접', dir: __dirname });
 // 실행기(scripts/launch.js)에게 "창이 떴다"를 알리는 표시 파일
 function markReady(extra) {
-  try { fs.writeFileSync(path.join(__dirname, 'logs', 'ready.json'), JSON.stringify({ mode: process.env.DOWNCAT_LAUNCH_MODE || null, at: new Date().toISOString(), ...extra })); } catch {}
+  try { fs.writeFileSync(path.join(DATA_DIR, 'logs', 'ready.json'), JSON.stringify({ mode: process.env.DOWNCAT_LAUNCH_MODE || null, at: new Date().toISOString(), ...extra })); } catch {}
 }
 
 const engine = require('./engine');
 const { createToolManager, toolsFor } = require('./tools');
 
-const CONFIG = path.join(__dirname, 'config.json');
-const TASKS = path.join(__dirname, 'tasks.json');
-const COOKIES_TXT = path.join(__dirname, 'cookies', 'cookies.txt');
+const CONFIG = path.join(DATA_DIR, 'config.json');
+const TASKS = path.join(DATA_DIR, 'tasks.json');
+const COOKIES_TXT = path.join(DATA_DIR, 'cookies', 'cookies.txt');
 
 function loadJson(file, fallback) {
   try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return fallback; }
@@ -50,7 +54,7 @@ function saveJson(file, data) { // 임시파일에 쓰고 바꿔치기 — 쓰�
 
 // 설정 한 덩어리로 관리(기본값 + 저장된 값 병합).
 const DEFAULTS = {
-  outDir: path.join(__dirname, 'downloads'),
+  outDir: app.isPackaged ? path.join(app.getPath('downloads'), '받냥이') : path.join(__dirname, 'downloads'),
   cookieFile: null,
   ytHeight: 0,        // 0=최고화질, 1080/2160/4320
   stories: false,     // 인스타 스토리 포함
@@ -71,8 +75,9 @@ const jobs = {}; // jobId -> AbortController (실행 중인 다운로드, 취소
 
 // 도구 관리자: yt-dlp·gallery-dl·ffmpeg·aria2 자동 설치/업데이트(해시 확인 후). Windows에서만 켜진다.
 // net.fetch = 크롬과 같은 네트워크(시스템 프록시 설정을 따름).
-const BIN_DIR = path.join(__dirname, 'bin');
+const BIN_DIR = path.join(DATA_DIR, 'bin');
 engine.setBinDir(BIN_DIR);
+engine.setThumbsDir(path.join(DATA_DIR, 'thumbs'));
 const tools = createToolManager({ binDir: BIN_DIR, fetch: (u, o) => net.fetch(u, o) });
 const lastToolLog = {};
 tools.on('change', (snap) => { // 설정 창·메인 창에 진행 상황 전달
@@ -260,6 +265,8 @@ ipcMain.handle('set-task-label', (e, id, label) => {
 
 // 도구 상태 / [지금 모두 확인·업데이트]
 ipcMain.handle('tools-status', () => tools.snapshot());
+// 확장 설치 도우미: 크롬 확장 관리 화면을 열고 확장 폴더 주소를 복사해 주는 bat를 실행
+ipcMain.handle('open-ext-installer', () => shell.openPath(path.join(__dirname, '받냥이-확장설치.bat')));
 ipcMain.handle('tools-update-all', () => tools.checkAll({ force: true }));
 
 // 설정 창

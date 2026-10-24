@@ -203,7 +203,8 @@ function scanNew(dir, since, acc) {
 }
 
 // 영상만 받았으면(이미지 썸네일 없음) ffmpeg로 1초 지점 한 장면을 뽑아 카드 썸네일로 쓴다.
-const THUMBS_DIR = path.join(__dirname, 'thumbs');
+let THUMBS_DIR = path.join(__dirname, 'thumbs');
+function setThumbsDir(dir) { THUMBS_DIR = dir; }
 function extractThumb(video) {
   const ffDir = findFfmpeg();
   if (ffDir === null) return Promise.resolve(null); // ffmpeg 없으면 아이콘으로 표시
@@ -488,7 +489,7 @@ function probeFormats(url, opts) {
 
 module.exports = {
   download, pickTool, isDirectFileUrl, isImageHost, expandListing, extractItemLinks, resolveEmbeddedSource,
-  ytdlpArgs, gallerydlArgs, probeFormats, decodeLine, createLineReader, setBinDir, LOGIN_HINT,
+  ytdlpArgs, gallerydlArgs, probeFormats, decodeLine, createLineReader, setBinDir, setThumbsDir, LOGIN_HINT,
   _setToolOverrides, // 테스트 전용
 };
 
