@@ -37,7 +37,13 @@ if errorlevel 1 goto failed
 if not exist ".\node_modules\electron\dist\electron.exe" goto failed
 
 :run
-rem 3) Launch. scripts\launch.js tries normal mode first; if the window dies before it appears
+rem 3) Let Electron's sandboxed helper processes read the Electron folder.
+rem    Some folders (e.g. Downloads on some PCs) carry an AppContainer-only ACL, and Electron then
+rem    stops right away with "Sandboxed processes cannot read ...\electron\dist". This grants read
+rem    access to ALL APPLICATION PACKAGES (S-1-15-2-1) on that folder only. No admin rights needed.
+if exist ".\node_modules\electron\dist" icacls ".\node_modules\electron\dist" /grant *S-1-15-2-1:(OI)(CI)(RX) /T /C /Q >nul 2>&1
+
+rem 4) Launch. scripts\launch.js tries normal mode first; if the window dies before it appears
 rem    (some new Windows builds), it retries in safer modes and remembers the one that works.
 where node >nul 2>&1
 if errorlevel 1 (
