@@ -26,7 +26,11 @@ function onFatal(kind, err) {
 }
 process.on('uncaughtException', (e) => onFatal('uncaughtException', e));
 process.on('unhandledRejection', (e) => onFatal('unhandledRejection', e));
-log('시작', { version: app.getVersion(), electron: process.versions.electron, os: `${process.platform} ${require('os').release()}`, dir: __dirname });
+log('시작', { version: app.getVersion(), electron: process.versions.electron, os: `${process.platform} ${require('os').release()}`, mode: process.env.DOWNCAT_LAUNCH_MODE || '직접', dir: __dirname });
+// 실행기(scripts/launch.js)에게 "창이 떴다"를 알리는 표시 파일
+function markReady(extra) {
+  try { fs.writeFileSync(path.join(__dirname, 'logs', 'ready.json'), JSON.stringify({ mode: process.env.DOWNCAT_LAUNCH_MODE || null, at: new Date().toISOString(), ...extra })); } catch {}
+}
 
 const engine = require('./engine');
 const { createToolManager, toolsFor } = require('./tools');
@@ -88,6 +92,7 @@ app.on('will-quit', () => log('종료'));
 // 이중 실행 방지: 두 번 켜면 새 창 대신 기존 창을 앞으로 (기록 파일 서로 덮어쓰기 방지)
 if (!app.requestSingleInstanceLock()) {
   log('이미 켜진 받냥이가 있어 이번 실행은 닫음(작업 관리자에서 electron.exe 확인)');
+  markReady({ alreadyRunning: true });
   app.quit();
 } else app.on('second-instance', () => {
   if (mainWin && !mainWin.isDestroyed()) { if (mainWin.isMinimized()) mainWin.restore(); mainWin.focus(); }
@@ -102,6 +107,7 @@ function createWindow() {
   });
   mainWin = win;
   win.on('closed', () => log('메인 창 닫힘'));
+  win.webContents.once('did-finish-load', () => { log('창 열림'); markReady(); });
   win.webContents.on('did-fail-load', (_e, code, desc) => log('화면 불러오기 실패', code, desc));
   win.webContents.on('console-message', (e) => { // 화면 쪽 오류도 기록 (Electron 35+는 이벤트 객체에 담겨 온다)
     if (e.level === 'error') log('화면 오류', `${e.message} (${path.basename(e.sourceId || '')}:${e.lineNumber})`);
@@ -126,6 +132,7 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  log('준비됨');
   createWindow();
   startClipboardWatch();
   tools.start().catch((e) => console.error('[tools]', e)); // 없는 도구 설치 + 하루 한 번 업데이트 확인

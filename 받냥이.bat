@@ -37,7 +37,22 @@ if errorlevel 1 goto failed
 if not exist ".\node_modules\electron\dist\electron.exe" goto failed
 
 :run
-start "" ".\node_modules\electron\dist\electron.exe" .
+rem 3) Launch. scripts\launch.js tries normal mode first; if the window dies before it appears
+rem    (some new Windows builds), it retries in safer modes and remembers the one that works.
+where node >nul 2>&1
+if errorlevel 1 (
+  start "" ".\node_modules\electron\dist\electron.exe" .
+  exit /b 0
+)
+echo [DownCat] Starting...
+node ".\scripts\launch.js"
+if errorlevel 1 (
+  echo.
+  echo [DownCat] Could not open the window. Tell Claude: the logs folder has the details.
+  echo.
+  pause
+  exit /b 1
+)
 exit /b 0
 
 :failed
