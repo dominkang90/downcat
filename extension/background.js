@@ -6,12 +6,14 @@ const BRIDGE = 'http://127.0.0.1:47653';
 const MENU_ID = 'downcat-send';
 
 // 설치/업데이트 때 우클릭 메뉴를 만든다(링크·이미지·영상·오디오에서 보임).
-chrome.runtime.onInstalled.addListener(() => {
+chrome.runtime.onInstalled.addListener(async (details) => {
   chrome.contextMenus.create({
     id: MENU_ID,
     title: '받냥이로 받기',
     contexts: ['link', 'image', 'video', 'audio'],
   });
+  // 처음 설치했는데 아직 받냥이와 연결 안 됐으면 → 연결 설정([연결하기]) 페이지를 바로 띄운다
+  if (details && details.reason === 'install' && !(await getToken())) chrome.runtime.openOptionsPage();
 });
 
 // ---- 동영상/미디어 스트림 감지: 탭마다 오간 미디어 요청 URL을 모은다(팝업 "리소스 수집기"용) ----

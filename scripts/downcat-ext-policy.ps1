@@ -12,7 +12,7 @@ param(
   [string]$ExtId = 'hcaehgnpahddjceeamipjimeokagpgno',
   [string]$Token = '',
   [string]$ConfigPath = '',
-  [string]$Version = '0.1.0',
+  [string]$Version = '',   # 비우면 extension\manifest.json의 버전을 쓴다(CRX 버전과 같아야 크롬이 설치)
   [switch]$Uninstall
 )
 $ErrorActionPreference = 'Stop'
@@ -66,6 +66,9 @@ if ($Uninstall) {
 
 if (-not $CrxPath -or -not (Test-Path $CrxPath)) { throw "CRX를 못 찾음: $CrxPath" }
 $CrxPath = (Resolve-Path $CrxPath).Path
+if (-not $Version) {
+  try { $Version = (Get-Content (Join-Path $PSScriptRoot '..\extension\manifest.json') -Raw | ConvertFrom-Json).version } catch { $Version = '0.0.0' }
+}
 $dir = Split-Path $CrxPath -Parent
 $xmlPath = Join-Path $dir 'downcat-update.xml'
 

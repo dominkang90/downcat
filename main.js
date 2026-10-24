@@ -188,6 +188,7 @@ async function askPair(extensionId) {
     buttons: ['예', '아니요'], defaultId: official ? 0 : 1, cancelId: 1, noLink: true,
   });
   mainWin.flashFrame(false);
+  log('확장 연결 요청', { extensionId, official, approved: response === 0 });
   return response === 0;
 }
 // 앱을 닫으면 진행 중이던 다운로드 프로세스도 같이 끝낸다 (윈도우는 자식 프로세스가 저절로 안 죽음).
