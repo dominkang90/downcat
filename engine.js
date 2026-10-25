@@ -283,7 +283,7 @@ async function expandListing(url) {
 // 실패 원인 알아보기 (도구 출력 한 줄 기준)
 const UNSUPPORTED_RE = /Unsupported URL/i; // yt-dlp: "ERROR: Unsupported URL: ...", gallery-dl: "Unsupported URL '...'"
 // 로그인이 필요해 보이는 오류: 401·403, "Sign in"(유튜브 "Sign in to confirm…"), gallery-dl 인증 오류
-const LOGIN_RE = /HTTP Error 40[13]\b|\b40[13][ :'"]+(?:Unauthorized|Forbidden|Client Error)|\bSign in\b|login required|log in to|requires? (?:authentication|login)|AuthRequired|AuthenticationError|AuthorizationError/i;
+const LOGIN_RE = /HTTP Error 40[13]\b|\b40[13][ :'"]+(?:Unauthorized|Forbidden|Client Error)|\bSign in\b|login required|log in to|requires? (?:authentication|login)|AuthRequired|AuthenticationError|AuthorizationError|redirect to login page|accounts\/login|login_required|rate-limit reached or login required/i;
 const ERRORISH_RE = /\bERROR\b|\[error\]|Error:/i;
 const LOGIN_HINT = '로그인이 필요해 보여요 — [🔑 로그인]을 눌러 보세요';
 

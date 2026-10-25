@@ -86,6 +86,12 @@ test('로그인 필요(gallery-dl 401): [🔑 로그인] 안내', async () => {
   assert.match(r.error, /로그인/);
 });
 
+test('로그인 필요(인스타: 로그인 페이지로 돌려보냄): [🔑 로그인] 안내', async () => {
+  const { r } = await run('https://www.instagram.com/p/x/loginredirect');
+  assert.strictEqual(r.needsLogin, true);
+  assert.strictEqual(r.error, engine.LOGIN_HINT);
+});
+
 test('gallery-dl 성공: 한글 경로 파일 2개', async () => {
   const { r } = await run('https://www.instagram.com/p/ok');
   assert.strictEqual(statusOf(r), 'done');

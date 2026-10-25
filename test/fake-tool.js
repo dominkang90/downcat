@@ -60,6 +60,10 @@ const announce = (p) => out(kind === 'ytdlp' ? 'DCFILE:' + p : p);
   }
   if (kind === 'ytdlp' && scenario === 'unsupported') { err(`ERROR: Unsupported URL: ${url}`); process.exit(1); }
   if (kind === 'gallerydl' && scenario === 'unsupported' && /both/.test(url)) { err(`[gallery-dl][error] Unsupported URL '${url}'`); process.exit(64); }
+  if (scenario === 'loginredirect') { // 2026년 실제 gallery-dl 출력 그대로
+    err(`[instagram][error] HTTP redirect to login page (https://www.instagram.com/accounts/login/)`);
+    process.exit(4);
+  }
   if (scenario === 'login') {
     if (kind === 'ytdlp') err('ERROR: [generic] login: Unable to download webpage: HTTP Error 403: Forbidden');
     else err(`[instagram][error] HttpError: '401 Unauthorized' for '${url}'`);
