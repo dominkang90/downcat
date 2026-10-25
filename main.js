@@ -320,15 +320,35 @@ async function exportAllCookies(ses) {
   return cookies.length;
 }
 
+// 로그인 창을 "PC용 크롬"처럼 보이게 한다. 기본 Electron 이름(…Electron/44…)이나 좁은 창이면
+// 인스타가 휴대폰으로 착각해 'intent://' 앱 열기 링크를 띄우고(→ Windows "앱을 다운로드하여…" 창) 로그인이 막힌다.
+const DESKTOP_UA = `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${process.versions.chrome} Safari/537.36`;
+let loginSessionReady = false;
+function setupLoginSession(ses) {
+  if (loginSessionReady) return;
+  loginSessionReady = true;
+  ses.setUserAgent(DESKTOP_UA);
+  // 앱 열기(intent:, instagram: 같은 외부 프로그램 호출)는 전부 거절 — 로그인은 창 안에서만
+  ses.setPermissionRequestHandler((_wc, permission, cb) => cb(permission !== 'openExternal'));
+  ses.setPermissionCheckHandler((_wc, permission) => permission !== 'openExternal');
+}
+const isWebUrl = (u) => /^https?:\/\//i.test(u || '');
+
 ipcMain.handle('open-login', async (e, startUrl) => {
   const ses = session.fromPartition('persist:downcat');
+  setupLoginSession(ses);
   // 로그인 없이 그냥 닫으면 아무것도 안 바꾸도록, 열기 전 쿠키 지문을 기억해 비교한다
   const fingerprint = async () => JSON.stringify((await ses.cookies.get({})).map(c => [c.domain, c.name, c.value]).sort());
   const before = await fingerprint();
   const win = new BrowserWindow({
-    width: 520, height: 760, title: '로그인 (로그인 후 이 창을 닫으세요)',
+    width: 1000, height: 820, title: '로그인 (로그인 후 이 창을 닫으세요)',
     parent: mainWin, webPreferences: { partition: 'persist:downcat' },
   });
+  win.webContents.setUserAgent(DESKTOP_UA);
+  // http(s)가 아닌 주소로 이동(앱 열기 등)은 막고, 새 창 요청은 같은 창에서 연다
+  win.webContents.on('will-navigate', (ev, url) => { if (!isWebUrl(url)) ev.preventDefault(); });
+  win.webContents.on('will-redirect', (ev, url) => { if (!isWebUrl(url)) ev.preventDefault(); });
+  win.webContents.setWindowOpenHandler(({ url }) => { if (isWebUrl(url)) win.loadURL(url); return { action: 'deny' }; });
   win.loadURL(startUrl || 'https://www.instagram.com/accounts/login/');
   return new Promise((resolve) => {
     win.on('closed', async () => {
