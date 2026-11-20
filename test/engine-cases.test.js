@@ -132,8 +132,8 @@ test('줄 읽기: UTF-8·cp949·끊긴 조각·\\r\\n·마지막 줄', () => {
 
 test('자동 분배: 새 이미지 사이트와 호스트 이름 기준 판별', () => {
   const g = (u) => engine.pickTool(u, 'auto');
-  for (const u of ['https://x.com/user/status/1', 'https://twitter.com/user/status/1', 'https://mobile.twitter.com/a',
-    'https://blog.naver.com/abc/123', 'https://m.blog.naver.com/abc/123', 'https://bsky.app/profile/a.bsky.social/post/1',
+  for (const u of ['https://x.com/user/status/1', 'https://twitter.com/user/status/1', 'https://mobile.twitter.com/a']) assert.strictEqual(g(u), 'x', u);
+  for (const u of ['https://blog.naver.com/abc/123', 'https://m.blog.naver.com/abc/123', 'https://bsky.app/profile/a.bsky.social/post/1',
     'https://www.behance.net/gallery/1/x', 'https://kr.pinterest.com/pin/1', 'https://www.pinterest.co.kr/pin/1',
     'https://instagram.com/p/abc', 'https://danbooru.donmai.us/posts/1']) {
     assert.strictEqual(g(u), 'gallerydl', u);

@@ -18,6 +18,11 @@ function standardReleases(gh, v = 1) {
     { name: 'yt-dlp.exe', data: yt },
     { name: 'SHA2-256SUMS', data: Buffer.from(`${sha256(Buffer.from('other'))}  yt-dlp\n${sha256(yt)}  yt-dlp.exe\n`) },
   ] };
+  const deno = makeZip({ 'deno.exe': Buffer.from(`fake deno v${v}`) });
+  gh.releases['denoland/deno'] = { tag_name: `v2.9.${v}`, assets: [
+    { name: 'deno-x86_64-pc-windows-msvc.zip', data: deno, digest: true },
+    { name: 'deno-x86_64-pc-windows-msvc.zip.sha256sum', data: Buffer.from(`Algorithm : SHA256\nHash : ${sha256(deno).toUpperCase()}\nPath : C:\\a\\deno\\deno-x86_64-pc-windows-msvc.zip\n`) },
+  ] };
   gh.releases['gdl-org/builds'] = { tag_name: `2026.10.${20 + v}`, body: `gallery-dl commit ${v}`, assets: [
     { name: 'gallery-dl_windows.exe', data: Buffer.from(`fake gallery-dl v${v}`), digest: true },
     { name: 'gallery-dl_windows_x86.exe', data: Buffer.from('x86'), digest: true },
@@ -52,12 +57,13 @@ function mk(extra = {}) {
     advance: (ms) => { clock += ms; } };
 }
 
-test('첫 실행: 네 도구를 받아 해시 확인 후 설치(ffmpeg는 ffmpeg·ffprobe만 꺼냄)', async () => {
+test('첫 실행: 다섯 도구를 받아 해시 확인 후 설치(ffmpeg는 ffmpeg·ffprobe만 꺼냄)', async () => {
   standardReleases(gh);
   const { m, read, has, binDir } = mk();
   const r = await m.checkAll();
-  assert.deepStrictEqual(r.map(x => [x.name, x.result]), [['ytdlp', 'installed'], ['gallerydl', 'installed'], ['aria2', 'installed'], ['ffmpeg', 'installed']]);
+  assert.deepStrictEqual(r.map(x => [x.name, x.result]), [['ytdlp', 'installed'], ['deno', 'installed'], ['gallerydl', 'installed'], ['aria2', 'installed'], ['ffmpeg', 'installed']]);
   assert.strictEqual(read('yt-dlp.exe'), 'fake yt-dlp v1');
+  assert.strictEqual(read('deno.exe'), 'fake deno v1');
   assert.strictEqual(read('gallery-dl.exe'), 'fake gallery-dl v1');
   assert.strictEqual(read('aria2c.exe'), 'fake aria2c v1');
   assert.ok(read('ffmpeg.exe').startsWith('fake ffmpeg v1'));
@@ -132,7 +138,7 @@ test('하루 안에는 다시 확인하지 않고, 하루 지나면 새 버전�
   advance(13 * 3600 * 1000); // 총 25시간
   r = await m.checkAll();
   const res = Object.fromEntries(r.map(x => [x.name, x.result]));
-  assert.deepStrictEqual(res, { ytdlp: 'updated', gallerydl: 'updated', aria2: 'updated', ffmpeg: 'skipped' });
+  assert.deepStrictEqual(res, { ytdlp: 'updated', deno: 'updated', gallerydl: 'updated', aria2: 'updated', ffmpeg: 'skipped' });
   assert.strictEqual(read('yt-dlp.exe'), 'fake yt-dlp v2');
   assert.ok(read('ffmpeg.exe').startsWith('fake ffmpeg v1'), 'ffmpeg는 아직 그대로');
   assert.ok(!fs.readdirSync(binDir).some(f => /\.old-/.test(f)), '옛 파일은 지워진다');
@@ -200,7 +206,11 @@ test('이미 있는 도구의 업데이트는 받는 동안 작업을 막지 않
 
 test('손으로 넣어 둔 도구(기록 없음): ffmpeg는 바로 갈아끼우지 않고, 나머지는 확인한다', async () => {
   standardReleases(gh);
-  const { m, binDir, read } = mk();
+  // 텍스트 fixture를 Windows 실행파일로 실행하지 않는다. 버전 미상인 legacy 상태를 명시한다.
+  const { m, binDir, read } = mk({ specs: { ...TOOL_SPECS,
+    ytdlp: { ...TOOL_SPECS.ytdlp, versionArgs: null },
+    ffmpeg: { ...TOOL_SPECS.ffmpeg, versionArgs: null },
+  } });
   fs.writeFileSync(path.join(binDir, 'ffmpeg.exe'), 'old ffmpeg');
   fs.writeFileSync(path.join(binDir, 'ffprobe.exe'), 'old ffprobe');
   fs.writeFileSync(path.join(binDir, 'yt-dlp.exe'), 'old yt-dlp');
@@ -222,7 +232,9 @@ test('같은 확인이 겹치면 한 번만 돈다', async () => {
 
 test('GitHub 확인이 실패하면 오류로 남기고 기존 도구는 그대로', async () => {
   standardReleases(gh);
-  const { m, binDir } = mk({ apiBase: gh.base + '/nope' });
+  const { m, binDir } = mk({ apiBase: gh.base + '/nope', specs: { ...TOOL_SPECS,
+    ytdlp: { ...TOOL_SPECS.ytdlp, versionArgs: null },
+  } });
   fs.writeFileSync(path.join(binDir, 'yt-dlp.exe'), 'old');
   const r = await m.checkAll();
   assert.ok(r.every(x => x.result === 'error' || x.result === 'skipped'));
