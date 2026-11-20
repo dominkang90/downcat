@@ -1,5 +1,5 @@
 'use strict';
-// 받냥이 도구 관리자: yt-dlp · gallery-dl · ffmpeg · aria2 를 bin 폴더에 자동으로 깔고 최신으로 유지한다.
+// 받냥이 도구 관리자: yt-dlp · Deno · gallery-dl · ffmpeg · aria2 를 bin 폴더에 자동으로 깔고 최신으로 유지한다.
 //
 // 원칙
 //  1) 원본과 같은지 SHA-256 해시로 확인한 다음에만 설치한다. 해시를 구할 곳이 없으면 아예 설치하지 않는다.
@@ -29,6 +29,16 @@ const TOOL_SPECS = {
     interval: DAY,
     versionArgs: ['--version'],                     // 예: 2026.10.10 (= 릴리스 태그)
     sameAsLocal: (local, release) => local === release.tag_name,
+  },
+  deno: {
+    label: 'Deno', repo: 'denoland/deno',
+    asset: /^deno-x86_64-pc-windows-msvc\.zip$/,
+    files: { 'deno.exe': /(?:^|\/)deno\.exe$/ },
+    sums: 'deno-x86_64-pc-windows-msvc.zip.sha256sum',
+    parseSums: parseDenoSums,
+    interval: DAY,
+    versionArgs: ['--version'],
+    sameAsLocal: (local, release) => local === release.tag_name.replace(/^v/, ''),
   },
   gallerydl: {
     label: 'gallery-dl', repo: 'gdl-org/builds',    // gallery-dl 공식 빌드 저장소(README 안내와 같은 곳)
@@ -69,7 +79,7 @@ const TOOL_SPECS = {
     display: (release) => release.tag_name.replace(/^release-/, ''),
   },
 };
-const ORDER = ['ytdlp', 'gallerydl', 'aria2', 'ffmpeg']; // 작은 것부터(ffmpeg 200MB는 마지막)
+const ORDER = ['ytdlp', 'deno', 'gallerydl', 'aria2', 'ffmpeg']; // 작은 것부터(ffmpeg 200MB는 마지막)
 
 function sha256(s) { return crypto.createHash('sha256').update(s).digest('hex'); }
 
@@ -80,6 +90,16 @@ function parseSums(text, name) {
     if (m && m[2].trim() === name) return m[1].toLowerCase();
   }
   return null;
+}
+
+// Deno Windows 체크섬은 Get-FileHash 출력이다. 다른 파일·알고리즘·중복/불완전 레코드는 거부한다.
+function parseDenoSums(text, name) {
+  const value = String(text).trim();
+  const gnu = value.match(/^([a-f0-9]{64})\s+\*?([^\r\n]+)$/i);
+  if (gnu) return gnu[2].trim() === name ? gnu[1].toLowerCase() : null;
+  const ps = value.match(/^Algorithm[ \t]*:[ \t]*SHA256[ \t]*\r?\n[ \t]*Hash[ \t]*:[ \t]*([a-f0-9]{64})[ \t]*\r?\n[ \t]*Path[ \t]*:[ \t]*([^\r\n]+)$/i);
+  if (!ps || ps[2].trim().split(/[\\/]/).pop() !== name) return null;
+  return ps[1].toLowerCase();
 }
 
 class ToolManager extends EventEmitter {
@@ -292,7 +312,8 @@ class ToolManager extends EventEmitter {
     if (spec.sums) {
       const sumsAsset = (release.assets || []).find(a => a.name === spec.sums);
       if (sumsAsset) {
-        const h = parseSums(await this._getText(sumsAsset.browser_download_url), asset.name);
+        const h = (spec.parseSums || parseSums)(await this._getText(sumsAsset.browser_download_url), asset.name);
+        if (!h && spec.parseSums) throw new Error(`${spec.label}: 해시 목록에서 받을 파일의 SHA256을 확인할 수 없어 설치하지 않았어요`);
         if (h) found.push(['해시 목록', h]);
       }
     }
@@ -354,9 +375,10 @@ class ToolManager extends EventEmitter {
 function createToolManager(opts) { return new ToolManager(opts); }
 
 // 다운로드 하나가 어떤 도구를 쓰는지(자동 분배 결과 기준). yt-dlp는 고화질 병합에 ffmpeg,
-// "지원 안 하는 주소"면 gallery-dl로 다시 시도하므로 셋 다 기다린다.
+// YouTube JavaScript 실행에는 Deno, "지원 안 하는 주소" 재시도에는 gallery-dl도 기다린다.
 function toolsFor(engineTool) {
-  if (engineTool === 'ytdlp') return ['ytdlp', 'ffmpeg', 'gallerydl'];
+  if (engineTool === 'threads' || engineTool === 'x' || engineTool === 'telegram') return []; // Electron만 있으면 됨: 다른 도구 설치를 기다리지 않는다
+  if (engineTool === 'ytdlp') return ['ytdlp', 'deno', 'ffmpeg', 'gallerydl'];
   if (engineTool === 'gallerydl') return ['gallerydl'];
   if (engineTool === 'aria2') return ['aria2'];
   return undefined; // 모름 → 전부
@@ -364,5 +386,5 @@ function toolsFor(engineTool) {
 
 module.exports = { createToolManager, ToolManager, TOOL_SPECS, parseSums, toolsFor, DAY };
 
-// 📌 이 코드가 하는 일: 받냥이가 쓰는 4가지 도구를 "공식 배포처에서 받아 → 지문(해시)이 원본과 같은지 확인하고 →
+// 📌 이 코드가 하는 일: 받냥이가 쓰는 5가지 도구를 "공식 배포처에서 받아 → 지문(해시)이 원본과 같은지 확인하고 →
 // bin 폴더에 넣는" 일을 자동으로 한다. 하루 한 번 새 버전이 있는지 보고, 도구를 까는 동안 들어온 작업은 줄 세워 기다리게 한다.

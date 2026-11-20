@@ -1,0 +1,26 @@
+받냥이 0.2.7-youtube.1 검증 기록
+
+관련 테스트233개 통과: 기존 Threads/X/Telegram194 + YouTube엔진16 + Deno설치기23.
+수정 전 YouTube엔진16개 중11개 실패를 재현했고 수정 후16개 모두 통과.
+Deno 공식Windows ZIP: SHA256 cba84b26e0df5ae7f74fc66b86a95b866872a86292ebd84fa1e959927edd93bf
+yt-dlp 공식EXE: SHA256 f5389d3698ecde4ef06f4e6b1ce0294fe9ac1396228c8990b8d3416d6d177a7d
+각각 제작자 해시파일과 GitHub digest 양쪽 일치 확인.
+실제 실행: deno 2.9.8 / yt-dlp 2026.10.26 버전 출력 확인.
+실제 Deno eval: {version:2.9.8,value:42}, 종료코드0 확인. 시스템 설치나 PATH 변경 없음.
+독립 보안·요구 검토에서 확정된 신규 P1/P2 없음(정적 검토).
+
+대상 https://www.youtube.com/@kax-ai-kr
+브라우저 공개 목록 일반 동영상16+Shorts50=66 확인.
+엔진은 채널/개별/Shorts 주소를 변경하지 않고 yt-dlp에 전달.
+Deno자동준비·명시경로·포맷조회·누락오류·취소파일보존·0파일성공방지 검증.
+
+[blocked] 실제 YouTube 다운로드: 현재 외부 CLI 네트워크 제한.
+[blocked] Native Electron 전체 GUI: 기존 동일 런타임이 앱 코드 전에 종료된 이력.
+기존 전체 npm test 및 일부 외부프로세스 통합 테스트는 제한/시간초과로 완료하지 못했습니다.
+따라서233개는 명시된 관련 테스트의 합계이며 전체 테스트 통과 주장이 아닙니다.
+엔진검사는 실제소스+모의child_process, 설치기는localhost가짜GitHub 기반입니다.
+별도 로컬 합성영상 스모크는 보조작업 연결 중단으로 완료 결과가 없어 성공 수에 넣지 않았습니다.
+실제 도구 버전/eval 실행과 실제 YouTube 다운로드 성공을 구분합니다.
+
+원격GitHub·기존 설치본은 변경하지 않았습니다. 쿠키/계정설정/다운로드기록/임시검증파일은 배포하지 않습니다.
+실행 방법과 범위는 YOUTUBE-CHANGES.md를 확인하세요.

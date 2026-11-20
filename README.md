@@ -1,3 +1,7 @@
+> 현재 수정본은 0.2.7-youtube.1입니다. YOUTUBE-CHANGES.md를 먼저 확인하세요. 아래는 이전 기능 기록입니다.
+
+> 현재 수정본은 0.2.6-telegram.1입니다. TELEGRAM-CHANGES.md를 먼저 확인하세요. 아래는 기존 기능/설치 기록입니다.
+
 # 🐾 받냥이 (DownCat)
 
 URL을 붙여넣으면 영상·이미지를 알아서 폴더로 정리해 받아주는 바탕화면 다운로더.
@@ -82,3 +86,4 @@ URL을 붙여넣으면 영상·이미지를 알아서 폴더로 정리해 받아
 - `main.js` / `preload.js` — Electron 메인 + 안전한 IPC 다리
 - `index.html` / `renderer.js` / `styles.css` — 창 UI
 - `tasks.json` — 작업 기록, `config.json` — 저장 폴더 설정
+

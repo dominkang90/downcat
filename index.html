@@ -4,11 +4,17 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="stylesheet" href="styles.css" />
-  <title>받냥이</title>
+  <title>받냥이 0.2.7-youtube.1</title>
 </head>
 <body>
+  <section id="runtime-notice" class="toolbanner bad" role="alert" hidden>
+    <h2>받냥이 앱으로 실행해 주세요</h2>
+    <p>이 화면은 일반 브라우저에서 다운로드나 로그인을 실행할 수 없습니다. 앱 연결이 없어 모든 조작을 중지했습니다.</p>
+    <p>수정본의 <strong>Start-DownCat.cmd</strong>, 설치한 <strong>받냥이 앱</strong>, 또는 소스 폴더의 <strong>받냥이.bat</strong>로 실행해 주세요. 앱에서도 이 안내가 보이면 앱을 완전히 종료한 뒤 다시 실행해 주세요.</p>
+  </section>
   <div class="menubar">
     <span class="brand">🐾 받냥이</span>
+    <small id="app-version" title="YouTube 채널 다운로드 실행기 자동 준비 + Telegram·X·Threads">v0.2.7-youtube.1</small>
     <button id="tab-dl" class="tab on">다운로드</button>
     <button id="tab-gallery" class="tab">갤러리</button>
     <span class="spacer"></span>
@@ -37,6 +43,7 @@
       <span id="cookiename" class="cookiename">없음</span>
     </div>
 
+    <p id="post-support" style="margin:4px 24px 12px;color:#81899a;font-size:12px">YouTube 채널: 영상 일괄 저장 · Telegram 공개 게시물/X 개별/Threads 게시물·프로필: 미디어+본문 TXT</p>
     <div id="toolbanner" class="toolbanner" hidden></div>
 
     <ul id="tasks" class="tasks"></ul>
@@ -62,6 +69,8 @@
     <div id="grid" class="grid"></div>
   </div>
 
-  <script src="renderer.js"></script>
+  <script src="runtime-guard.js"></script>
 </body>
 </html>
+
+

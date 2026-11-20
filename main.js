@@ -58,6 +58,7 @@ const DEFAULTS = {
   cookieFile: null,
   ytHeight: 0,        // 0=최고화질, 1080/2160/4320
   stories: false,     // 인스타 스토리 포함
+  threadsProfileLimit: 50, // 프로필 목록에서 모을 게시물 수. 0은 공개 목록 끝까지
   autoClip: false,    // 클립보드에서 자동 추가
   parallel: 1,        // 안전한 기본값. 설정에서 늘릴 수 있음
   rateLimit: '',      // 최대 다운로드 속도 (''=무제한, '5M' 등)
@@ -281,6 +282,11 @@ ipcMain.handle('open-settings', () => {
   settingsWin.loadFile('settings.html');
 });
 ipcMain.handle('open-path', (e, p) => shell.showItemInFolder(p));
+const postText=require('./post-text');
+ipcMain.handle('open-post-text', (e,p)=>{
+  if(!mainWin || e.sender!==mainWin.webContents)throw new Error('앱 본문 화면에서만 열 수 있어요.');
+  return postText.openPostText(p,settings.outDir,file=>shell.openPath(file));
+});
 
 // 갤러리: 저장폴더 안 이미지/영상을 최신순으로 모아 준다.
 const IMG_EXT = /\.(jpe?g|png|webp|gif|bmp|avif)$/i;
@@ -293,9 +299,9 @@ function walk(dir, out, budget) {
     if (--budget.n < 0) return;
     const full = path.join(dir, ent.name);
     if (ent.isDirectory()) walk(full, out, budget);
-    else if (IMG_EXT.test(ent.name) || VID_EXT.test(ent.name)) {
+    else if (IMG_EXT.test(ent.name) || VID_EXT.test(ent.name) || postText.POST_TEXT_RE.test(ent.name)) {
       let mtime = 0; try { mtime = fs.statSync(full).birthtimeMs; } catch {} // 로컬 생성시각(최신 다운로드순)
-      out.push({ path: full, name: ent.name, isVideo: VID_EXT.test(ent.name), mtime });
+      out.push({ path: full, name: ent.name, isVideo: VID_EXT.test(ent.name), isText:postText.POST_TEXT_RE.test(ent.name), mtime });
     }
   }
 }
@@ -332,6 +338,9 @@ function setupLoginSession(ses) {
   ses.setPermissionRequestHandler((_wc, permission, cb) => cb(permission !== 'openExternal'));
   ses.setPermissionCheckHandler((_wc, permission) => permission !== 'openExternal');
 }
+engine.setThreadsHandler(require('./threads-browser').createThreadsHandler({ BrowserWindow, session, userAgent: DESKTOP_UA }));
+engine.setXHandler(require('./x-browser').createXHandler({ BrowserWindow, session, userAgent: DESKTOP_UA }));
+engine.setTelegramHandler(require('./telegram-browser').createTelegramHandler({ BrowserWindow, session, userAgent: DESKTOP_UA }));
 const isWebUrl = (u) => /^https?:\/\//i.test(u || '');
 
 ipcMain.handle('open-login', async (e, startUrl) => {
@@ -401,12 +410,13 @@ ipcMain.handle('download', async (e, { jobId, url, mode, useCookie, thumbnail, e
   let result;
   try {
     result = await engine.download(url, {
-      outDir: settings.outDir, mode,
+      outDir: settings.outDir, mode, useCookie,
       cookieFile: jobCookieFile || (useCookie ? settings.cookieFile : null), // 확장 쿠키 우선, 없으면 앱 로그인 쿠키
       referer: extra && extra.referer,   // 브리지(확장)가 준 referer — 엔진이 이미 지원
       userAgent: extra && extra.userAgent, // 확장이 준 브라우저 UA
       format: extra && extra.format,     // 확장 패널에서 고른 특정 화질(yt-dlp -f)
       thumbnail, ytHeight: settings.ytHeight, stories: settings.stories, rateLimit: settings.rateLimit,
+      threadsProfileLimit: settings.threadsProfileLimit ?? 50,
       signal: ac.signal,
     }, send);
   } catch (err) { // 저장폴더 소실(USB 뽑힘 등) — 카드가 '받는 중'에 영원히 멈추지 않게 실패로 처리
@@ -419,7 +429,8 @@ ipcMain.handle('download', async (e, { jobId, url, mode, useCookie, thumbnail, e
   const status = result.canceled ? 'canceled' : result.ok ? 'done' : (result.count > 0 ? 'partial' : 'fail');
   const record = { id: jobId, url, mode, tool: result.tool, status,
     count: result.count, bytes: result.bytes, thumb: result.thumb, file: result.file,
-    error: result.error, needsLogin: !!result.needsLogin, at: new Date().toISOString() };
+    documentFile: result.documentFile, textCount: result.textCount, mediaCount: result.mediaCount,
+    error: result.error, needsLogin: !!result.needsLogin, summary: result.summary, reportFile: result.reportFile, at: new Date().toISOString() };
   const tasks = loadJson(TASKS, []);
   tasks.unshift(record);
   saveJson(TASKS, tasks.slice(0, 500));

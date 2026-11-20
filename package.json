@@ -1,15 +1,19 @@
 {
   "name": "downcat",
-  "version": "0.2.0",
+  "version": "0.2.7-youtube.1",
   "description": "받냥이 - URL 붙여넣으면 영상/이미지를 폴더로 정리해 받는 바탕화면 다운로더",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "dl": "node engine.js",
-    "test": "node --test test_aria2.js test_bridge.js test_engine.js test/engine-cases.test.js test/encoding-real.test.js test/tools.test.js test/bridge-pair.test.js",
+    "test": "node --test test_aria2.js test_bridge.js test_engine.js test/engine-cases.test.js test/encoding-real.test.js test/tools.test.js test/bridge-pair.test.js test/threads.test.js test/threads-browser.test.js test/runtime-guard.test.js test/profile.test.js test/profile-ui.test.js test/profile-browser.test.js test/share.test.js test/content.test.js test/content-ui.test.js test/x.test.js test/x-browser.test.js test/telegram.test.js test/telegram-browser.test.js test/youtube-engine.test.js test/youtube-tools.test.js",
     "pack-crx": "node scripts/pack-crx.js",
     "dist": "node scripts/pack-crx.js && electron-builder --win nsis",
-    "dist:app": "electron-builder --win nsis --x64"
+    "dist:app": "electron-builder --win nsis --x64",
+    "test:threads": "node --test test/threads.test.js test/threads-browser.test.js test/runtime-guard.test.js test/profile.test.js test/profile-ui.test.js test/profile-browser.test.js test/share.test.js test/content.test.js test/content-ui.test.js",
+    "test:x": "node --test test/x.test.js test/x-browser.test.js",
+    "test:telegram": "node --test test/telegram.test.js test/telegram-browser.test.js",
+    "test:youtube": "node --test test/youtube-engine.test.js test/youtube-tools.test.js"
   },
   "devDependencies": {
     "electron": "44.9.0",

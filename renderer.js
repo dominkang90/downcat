@@ -12,7 +12,7 @@ const fmtSize = (b) => !b ? '' : b > 1e9 ? (b / 1e9).toFixed(1) + ' GB' : b > 1e
 const siteOf = (u) => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return ''; } };
 const toFileUrl = (p) => encodeURI('file:///' + p.replace(/\\/g, '/')).replace(/#/g, '%23').replace(/&/g, '%26'); // #·&는 encodeURI가 안 바꿔서 직접
 const IMG_RE = /\.(jpe?g|png|webp|gif|bmp|avif)$/i;
-const STATUS_TEXT = { downloading: '받는 중…', queued: '대기 중', done: '완료 ✓', partial: '일부 받음 · 사이트가 막음', fail: '실패', canceled: '취소됨' };
+const STATUS_TEXT = { downloading: '받는 중…', queued: '대기 중', done: '완료 ✓', partial: '일부 받음', fail: '실패', canceled: '취소됨' };
 
 // ── 설정 표시(쿠키) ──
 async function refreshOutDir() { /* 하단 상태용 여지 */ }
@@ -31,17 +31,27 @@ for (const id of ['usecookie', 'thumb']) {
 $('opensettings').onclick = () => window.api.openSettings();
 $('instalogin').onclick = async () => {
   // 입력칸에 URL이 있으면 그 사이트로, 없으면 인스타 로그인 페이지로 연다.
-  const first = ($('url').value.trim().split(/\s+/)[0]) || '';
+  const first = ($('url').value.trim().split(/\s+/)[0]) || taskList.find(t => t.needsLogin)?.url || '';
   let start = 'https://www.instagram.com/accounts/login/';
   try { if (first) start = new URL(first).origin + '/'; } catch {}
-  $('instalogin').textContent = '로그인 창 열림…';
-  const r = await window.api.openLogin(start); // 창을 닫으면 resolve
-  $('instalogin').textContent = '🔑 로그인';
-  if (r.ok) {
-    if (r.external && confirm('직접 고른 쿠키 파일을 쓰는 중이에요.\n방금 로그인한 앱 쿠키로 바꿀까요?')) {
-      await window.api.setSettings({ cookieFile: r.file });
+  const button = $('instalogin');
+  if (button.disabled) return;
+  const label = button.textContent;
+  button.disabled = true;
+  button.textContent = '로그인 창 열림…';
+  try {
+    const r = await window.api.openLogin(start); // 창을 닫으면 resolve
+    if (r.ok) {
+      if (r.external && confirm('직접 고른 쿠키 파일을 쓰는 중이에요.\n방금 로그인한 앱 쿠키로 바꿀까요?')) {
+        await window.api.setSettings({ cookieFile: r.file });
+      }
+      $('usecookie').checked = true; localStorage.setItem('chk:usecookie', '1'); await refreshCookie();
     }
-    $('usecookie').checked = true; localStorage.setItem('chk:usecookie', '1'); await refreshCookie();
+  } catch {
+    alert('로그인을 완료하지 못했습니다. 받냥이 앱에서 다시 시도해 주세요. 계속되면 앱을 다시 실행해 주세요.');
+  } finally {
+    button.textContent = label;
+    button.disabled = false;
   }
 };
 
@@ -56,6 +66,21 @@ $('tab-dl').onclick = () => showTab('dl');
 $('tab-gallery').onclick = () => showTab('gallery');
 $('refresh').onclick = renderGallery;
 
+// 본문 열기는 클릭할 때 실행한다. 누락되거나 실패한 브리지 호출은 안내한다.
+async function openPostText(filePath) {
+  try {
+    if (typeof window.api.openPostText !== 'function') throw new Error('앱을 다시 실행한 뒤 시도해 주세요.');
+    const result = await window.api.openPostText(filePath);
+    if (result?.ok === false) throw new Error(result.error || '파일을 열 수 없습니다.');
+  } catch (error) {
+    alert('본문을 열지 못했습니다. ' + (error?.message || '파일이 있는지 확인한 뒤 다시 시도해 주세요.'));
+  }
+}
+function fileCountText(t) {
+  if (t.textCount != null) return `미디어 ${t.mediaCount ?? Math.max(0, (t.count || 0) - t.textCount)} · 본문 ${t.textCount}`;
+  return t.count ? `🖼 ${t.count}p` : '';
+}
+
 // ── 갤러리 ──
 async function renderGallery() {
   const items = await window.api.listGallery();
@@ -64,10 +89,10 @@ async function renderGallery() {
   for (const it of items) {
     const tile = document.createElement('div');
     tile.className = 'tile'; tile.title = it.name;
-    tile.innerHTML = it.isVideo ? `<div class="vthumb">🎬</div><div class="cap"></div>`
+    tile.innerHTML = it.isText ? `<div class="vthumb">본문</div><div class="cap"></div>` : it.isVideo ? `<div class="vthumb">🎬</div><div class="cap"></div>`
       : `<img loading="lazy" src="${toFileUrl(it.path)}" onerror="this.outerHTML='🎬'" /><div class="cap"></div>`;
     tile.querySelector('.cap').textContent = it.name;
-    tile.onclick = () => window.api.showItem(it.path);
+    tile.onclick = () => it.isText ? openPostText(it.path) : window.api.showItem(it.path);
     grid.appendChild(tile);
   }
 }
@@ -83,6 +108,7 @@ function cardHtml(t) {
       <div class="sub">
         <span class="badge">${siteOf(t.url)}</span>
         <span class="statusText"></span>
+        <span class="stat profileCount"></span>
         <span class="stat cnt"></span>
         <span class="stat sz"></span>
       </div>
@@ -91,12 +117,24 @@ function cardHtml(t) {
     <span class="labeldot" title="색 라벨(클릭해서 바꾸기)"></span>
     <div class="track"><div class="bar"></div></div>`;
 }
+// 프로필의 게시물 수와 실제 받은 파일 수는 서로 다른 값이다.
+function profileCountText(t) {
+  const p = t._profile;
+  if (!p || t.status !== 'downloading') return '';
+  if (p.phase === 'downloading' && p.total != null) return `게시물 ${p.current ?? 0}/${p.total}개`;
+  return `게시물 ${p.discovered ?? 0}개 확인`;
+}
 function fillCard(li, t) {
   li.className = 'task ' + t.status;
   li.querySelector('.title').textContent = t.url;
   const showErr = t.error && (t.status === 'fail' || (t.status === 'partial' && t.needsLogin));
-  li.querySelector('.statusText').textContent = (STATUS_TEXT[t.status] || '') + (showErr ? ' · ' + t.error : '');
-  li.querySelector('.cnt').textContent = t.count ? `🖼 ${t.count}p` : '';
+  // 수집 안내와 결과 요약은 HTML이 아닌 글자로 보여 준다. 복원한 기록도 같은 표시를 쓴다.
+  const status = t.status === 'downloading' && t._profile?.message
+    ? t._profile.message : (STATUS_TEXT[t.status] || '');
+  const summary = ['done', 'partial', 'fail', 'canceled'].includes(t.status) && typeof t.summary === 'string' ? t.summary : '';
+  li.querySelector('.statusText').textContent = status + (summary ? ' · ' + summary : '') + (showErr ? ' · ' + t.error : '');
+  li.querySelector('.profileCount').textContent = profileCountText(t);
+  li.querySelector('.cnt').textContent = fileCountText(t);
   li.querySelector('.sz').textContent = t.bytes ? `⬇ ${fmtSize(t.bytes)}` : '';
   const bar = li.querySelector('.bar');
   bar.classList.toggle('indet', t.status === 'downloading' && !t._pct);
@@ -110,8 +148,11 @@ function fillCard(li, t) {
   } else if (t.status === 'queued') {
     right.appendChild(mkBtn('✕', '대기 취소', () => { t.status = 'canceled'; fillCard(li, t); }));
   } else {
-    const f = t.file || t.thumb;
+    const f = t.file || t.thumb || t.documentFile;
     if (f) right.appendChild(mkBtn('📂', '폴더 열기', () => window.api.showItem(f)));
+    if (t.documentFile && ['done', 'partial', 'canceled'].includes(t.status)) {
+      right.appendChild(mkBtn('본문', t.textCount > 1 ? '첫 번째 본문 열기 (다른 본문은 폴더에서 확인)' : '본문 열기', () => openPostText(t.documentFile)));
+    }
     if (t.status !== 'done') right.appendChild(mkBtn('↻', '다시 받기', () => startOne(t)));
     right.appendChild(mkBtn('🗑', '기록 지우기 (받은 파일은 남음)', () => removeCard(t)));
   }
@@ -183,7 +224,20 @@ $('filter').oninput = render;
 let seq = 1;
 const queue = []; let running = 0;
 async function pump() {
-  const max = (await window.api.getSettings()).parallel || 1;
+  if (!queue.length) return;
+  let max;
+  try {
+    max = (await window.api.getSettings()).parallel || 1;
+  } catch {
+    // 설정을 읽지 못하면 시작할 수 없다. 대기 표시로 남기지 않고 다시 시도할 수 있게 마감한다.
+    for (const t of queue.splice(0)) {
+      if (t.status !== 'queued') continue;
+      t.status = 'fail';
+      t.error = '설정을 불러오지 못했습니다. 앱 연결을 확인한 뒤 다시 받기를 눌러 주세요.';
+      if (els[t.id]) fillCard(els[t.id], t);
+    }
+    return;
+  }
   while (running < max && queue.length) {
     const t = queue.shift();
     if (t.status !== 'queued') continue; // 대기 중에 취소된 작업은 건너뜀
@@ -193,6 +247,9 @@ async function pump() {
 }
 function startOne(t) { // 새 작업·다시 받기 → 대기열에 넣는다
   t.status = 'queued'; t.count = 0; t.bytes = 0; t._pct = 0;
+  // 다시 받기를 시작하면 지난 작업의 안내를 지운다.
+  t.summary = ''; t._profile = null; t.error = ''; t.needsLogin = false;
+  t.documentFile = null; t.textCount = null; t.mediaCount = null;
   if (els[t.id]) fillCard(els[t.id], t); else render();
   queue.push(t); pump();
 }
@@ -205,6 +262,9 @@ async function runOne(t) {
     .catch(() => ({ ok: false, count: 0, bytes: 0 })); // IPC까지 죽어도 카드는 실패로 마감
   t.status = r.canceled ? 'canceled' : r.ok ? 'done' : (r.count > 0 ? 'partial' : 'fail');
   t.count = r.count; t.bytes = r.bytes; t.error = r.error; t.needsLogin = !!r.needsLogin;
+  t.documentFile = r.documentFile || null; t.textCount = r.textCount ?? null; t.mediaCount = r.mediaCount ?? null;
+  // 수집이 끝난 이유 등 엔진의 결과 안내를 완료 카드에도 남긴다.
+  t.summary = typeof r.summary === 'string' ? r.summary : '';
   if (r.needsLogin) { // 로그인이 필요해 보이면 [🔑 로그인] 버튼을 깜빡여 알려준다
     const lb = $('instalogin'); lb.classList.remove('pulse'); void lb.offsetWidth; lb.classList.add('pulse');
   }
@@ -259,7 +319,18 @@ $('url').addEventListener('keydown', (e) => {
 // 진행률 이벤트(살아있는 작업 카드 갱신)
 window.api.onJobEvent((ev) => {
   const li = els[ev.jobId]; const t = taskList.find(x => x.id === ev.jobId);
-  if (!li || !t) return;
+  if (!t) return;
+  if (ev.type === 'profile' && (ev.phase === 'collecting' || ev.phase === 'downloading')) {
+    // 검색·필터로 카드가 숨겨져도 진행 안내를 기억해 다시 그릴 때 복원한다.
+    t._profile = { phase: ev.phase, discovered: ev.discovered, total: ev.total, current: ev.current,
+      message: typeof ev.message === 'string' ? ev.message : '' };
+    if (li && t.status === 'downloading') {
+      li.querySelector('.statusText').textContent = t._profile.message;
+      li.querySelector('.profileCount').textContent = profileCountText(t);
+    }
+    return;
+  }
+  if (!li) return;
   if (ev.type === 'waiting') { li.querySelector('.statusText').textContent = '🔧 도구 설치 기다리는 중…'; return; }
   if (ev.type === 'progress' && ev.percent != null) {
     t._pct = ev.percent; li.querySelector('.bar').classList.remove('indet');
@@ -267,7 +338,7 @@ window.api.onJobEvent((ev) => {
     const extra = [ev.speed, ev.eta && '남은 ' + ev.eta].filter(Boolean).join(' · ');
     li.querySelector('.statusText').textContent = `받는 중 ${ev.percent}%` + (extra ? ' · ' + extra : '');
   } else if (ev.type === 'progress' && ev.files != null) {
-    t.count = ev.files; li.querySelector('.cnt').textContent = `🖼 ${ev.files}p`;
+    t.count = ev.files; li.querySelector('.cnt').textContent = fileCountText(t);
     li.querySelector('.statusText').textContent = `받는 중… ${ev.files}개`;
   }
 });

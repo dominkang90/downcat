@@ -4,6 +4,15 @@
 const { spawn, execFileSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const threads = require('./threads');
+const x = require('./x');
+const telegram = require('./telegram');
+let telegramHandler = null;
+function setTelegramHandler(handler) { telegramHandler = handler; }
+let xHandler = null;
+function setXHandler(handler) { xHandler = handler; }
+let threadsHandler = null;
+function setThreadsHandler(handler) { threadsHandler = handler; }
 
 // 도구 폴더. 도구 관리자(tools.js)가 실행 중에 새로 깔 수 있으니 경로는 "쓸 때마다" 찾는다.
 let BIN_DIR = path.join(__dirname, 'bin');
@@ -16,6 +25,20 @@ function binFile(name) {
     try { if (fs.statSync(p).isFile()) return p; } catch {}
   }
   return null;
+}
+
+// YouTube는 앱 도구 폴더의 Deno만 사용한다. 별도 PATH 설치나 전역 yt-dlp 설정에 의존하지 않는다.
+const YOUTUBE_RUNTIME_HINT = 'YouTube 실행기(Deno)를 준비하지 못했어요. 설정의 [지금 모두 확인·업데이트]에서 Deno와 yt-dlp를 확인한 뒤 다시 시도해 주세요.';
+const YOUTUBE_RUNTIME_RE = /No supported JavaScript runtime|JavaScript runtime[^\r\n]*(?:not found|unavailable|unsupported)|(?:n challenge|signature) solving failed|challenge solver[^\r\n]*(?:failed|unavailable)/i;
+function isYouTubeUrl(url) {
+  try { const u = new URL(url); return /^https?:$/.test(u.protocol) && (u.hostname === 'youtu.be' || u.hostname === 'youtube.com' || u.hostname.endsWith('.youtube.com')); }
+  catch { return false; }
+}
+function youtubeRuntimeArgs(url) {
+  if (!isYouTubeUrl(url)) return [];
+  const runtime = binFile('deno');
+  if (!runtime) throw Object.assign(new Error(YOUTUBE_RUNTIME_HINT), { code: 'DENO_MISSING' });
+  return ['--ignore-config', '--no-js-runtimes', '--js-runtimes', 'deno:' + path.resolve(runtime)];
 }
 
 // 테스트용: 도구 실행을 가짜 프로그램으로 바꿔 끼운다. { ytdlp: {cmd, pre:[...]}, gallerydl: {...} }
@@ -116,6 +139,9 @@ function isDirectFileUrl(url) {
 }
 
 function pickTool(url, mode) {
+  if (threads.isThreadsUrl(url)) return 'threads';
+  if (x.isXUrl(url)) return 'x';
+  if (telegram.isTelegramUrl(url)) return 'telegram';
   if (mode === 'video') return 'ytdlp';
   if (mode === 'image') return 'gallerydl';
   if (mode === 'file') return 'aria2';                 // 확장/사용자가 파일로 지정
@@ -134,9 +160,11 @@ function cookieArgs(cookies, cookieFile) {
 
 // yt-dlp 실행 인자 만들기. o.thumbnail=영상썸네일, o.ytHeight=최대 세로해상도(1080 등).
 function ytdlpArgs(url, outDir, o) {
+  const runtimeArgs = youtubeRuntimeArgs(url);
   const ff = findFfmpeg();
   const prefix = o.outputPrefix ? `${o.outputPrefix} ` : '';
   const args = [
+    ...runtimeArgs,
     '--newline',
     '--encoding', 'utf-8', // 한국어 Windows에서 경로가 cp949로 찍히는 문제 방지
     '--progress-template', 'DLPCT:%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s',
@@ -290,7 +318,8 @@ const LOGIN_HINT = '로그인이 필요해 보여요 — [🔑 로그인]을 눌
 // 실패 결과에 사람이 읽을 이유를 붙인다(로그인 안내 > 마지막 오류 줄).
 function explainFailure(result, info) {
   if (result.ok || result.canceled) return result;
-  if (info.needsLogin) { result.needsLogin = true; result.error = LOGIN_HINT; }
+  if (info.runtimeFailure) { result.error = YOUTUBE_RUNTIME_HINT; }
+  else if (info.needsLogin) { result.needsLogin = true; result.error = LOGIN_HINT; }
   else if (!result.error && info.lastError) result.error = info.lastError.replace(/^ERROR:\s*/i, '').slice(0, 200);
   return result;
 }
@@ -305,6 +334,36 @@ async function download(url, opts, onEvent) {
   onEvent = onEvent || (() => {});
   const outDir = opts.outDir || path.join(__dirname, 'downloads');
   fs.mkdirSync(outDir, { recursive: true });
+  if (pickTool(url, opts.mode || 'auto') === 'telegram') {
+    let result;
+    try {
+      telegram.parsePostUrl(url);
+      result = telegramHandler ? await telegramHandler(url, { ...opts, outDir }, onEvent)
+        : telegram.failure('텔레그램은 받냥이 앱에서 실행해주세요. 공개 웹 미리보기에 연결해야 해요.');
+    } catch (err) { result = telegram.failure(err.message, { canceled: !!opts.signal?.aborted }); }
+    onEvent({ type: 'done', ...result });
+    return result;
+  }
+  if (pickTool(url, opts.mode || 'auto') === 'x') {
+    let result;
+    try {
+      x.parsePostUrl(url);
+      result = xHandler ? await xHandler(url, { ...opts, outDir }, onEvent)
+        : x.failure('X는 받냥이 앱에서 실행해주세요. 브라우저 연결이 필요해요.');
+    } catch (err) { result = x.failure(err.message, { canceled: !!opts.signal?.aborted }); }
+    onEvent({ type: 'done', ...result });
+    return result;
+  }
+  if (pickTool(url, opts.mode || 'auto') === 'threads') {
+    let result;
+    try {
+      threads.parseTargetUrl(url);
+      result = threadsHandler ? await threadsHandler(url, { ...opts, outDir }, onEvent)
+        : threads.failure('Threads는 받냥이 앱에서 실행해주세요. 명령줄 엔진만으로는 브라우저에 연결할 수 없어요.');
+    } catch (err) { result = threads.failure(err.message, { canceled: !!opts.signal?.aborted }); }
+    onEvent({ type: 'done', ...result });
+    return result;
+  }
   if (isYasCmsUrl(url) && /[?&]_Action=items(?:&|$)/i.test(url)) opts = { ...opts, polite: true };
   // 야스닷컴 계열이면 페이지 속 진짜 주소로 바꾸고 referer를 켠다
   const resolved = await resolveEmbeddedSource(url, opts.signal);
@@ -351,7 +410,15 @@ async function runTool(tool, url, outDir, opts, onEvent) {
   }
 
   let run, args;
-  if (tool === 'ytdlp') { run = resolveYtdlp(); args = ytdlpArgs(url, outDir, opts); }
+  if (tool === 'ytdlp') {
+    run = resolveYtdlp();
+    try { args = ytdlpArgs(url, outDir, opts); }
+    catch (err) {
+      const error = String(err.message || err);
+      onEvent({ type: 'error', line: error });
+      return { ok: false, tool, code: -1, count: 0, bytes: 0, thumb: null, file: null, error };
+    }
+  }
   else {
     run = resolveGallerydl();
     args = gallerydlArgs(url, outDir, opts);
@@ -396,6 +463,7 @@ async function runTool(tool, url, outDir, opts, onEvent) {
           return;
         }
       }
+      if (tool === 'ytdlp' && isYouTubeUrl(url) && YOUTUBE_RUNTIME_RE.test(line)) info.runtimeFailure = true;
       if (/No module named/i.test(line)) info.noModule = true;
       if (UNSUPPORTED_RE.test(line)) info.unsupported = true;
       if (isErr || ERRORISH_RE.test(line)) {
@@ -409,7 +477,8 @@ async function runTool(tool, url, outDir, opts, onEvent) {
     child.stdout.on('data', b => outReader.push(b));
     child.stderr.on('data', b => errReader.push(b));
     child.on('error', (e) => {
-      if (opts.signal && opts.signal.aborted) { resolve({ ok: false, tool, canceled: true, count: 0, bytes: 0, thumb: null, file: null }); return; }
+      // AbortError 직후 close가 오므로, 이미 받은 파일의 집계는 close에서 끝낸다.
+      if (opts.signal && opts.signal.aborted) return;
       onEvent({ type: 'error', line: String(e) });
       resolve({ ok: false, tool, code: -1, count: 0, bytes: 0, thumb: null, file: null, error: String(e) });
     });
@@ -419,6 +488,11 @@ async function runTool(tool, url, outDir, opts, onEvent) {
       // 이 작업의 출력에서 모은 파일로만 집계 → 동시 다운로드끼리 안 섞인다
       const all = [...new Set(jobFiles)].filter(p => { try { return fs.existsSync(p); } catch { return false; } });
       if (!all.length && code === 0 && !canceled) {
+        if (tool === 'ytdlp' && isYouTubeUrl(url)) {
+          resolve({ ok: false, tool, code, canceled, count: 0, bytes: 0, thumb: null, file: null,
+            error: '저장된 YouTube 영상 파일이 없어요. 공개 영상이 있는 주소인지와 작업 로그를 확인해 주세요.' });
+          return;
+        }
         // ponytail: 출력 형식을 못 알아본 사이트용 폴백(예전 시간창 스캔). 성공했을 때만 — 실패엔 안 써서 남의 파일을 안 줍는다
         const acc = { count: 0, bytes: 0, thumb: null, any: null, video: null };
         scanNew(outDir, startTime - 2000, acc);
@@ -452,7 +526,10 @@ function classifyFmt(f) {
 
 function probeFormats(url, opts) {
   opts = opts || {};
-  const args = ['-J', '--no-warnings', '--no-playlist', '--encoding', 'utf-8'];
+  let runtimeArgs;
+  try { runtimeArgs = youtubeRuntimeArgs(url); }
+  catch (err) { return Promise.resolve({ ok: false, error: String(err.message || err) }); }
+  const args = [...runtimeArgs, '-J', '--no-warnings', '--no-playlist', '--encoding', 'utf-8'];
   if (opts.referer) args.push('--referer', opts.referer);
   if (opts.userAgent) args.push('--user-agent', opts.userAgent);
   args.push(...cookieArgs(null, opts.cookieFile));
@@ -469,7 +546,7 @@ function probeFormats(url, opts) {
     child.on('close', (code) => {
       const out = decodeLine(Buffer.concat(outChunks));
       const err = decodeLine(Buffer.concat(errChunks));
-      if (code !== 0) { resolve({ ok: false, error: (err.trim().split(/\r?\n/).pop() || ('yt-dlp 오류 ' + code)) }); return; }
+      if (code !== 0) { resolve({ ok: false, error: isYouTubeUrl(url) && YOUTUBE_RUNTIME_RE.test(err) ? YOUTUBE_RUNTIME_HINT : (err.trim().split(/\r?\n/).pop() || ('yt-dlp 오류 ' + code)) }); return; }
       let d; try { d = JSON.parse(out); } catch { resolve({ ok: false, error: '포맷 정보 파싱 실패' }); return; }
       const video = [], audio = [];
       for (const f of (d.formats || [])) {
@@ -487,8 +564,8 @@ function probeFormats(url, opts) {
   });
 }
 
-module.exports = {
-  download, pickTool, isDirectFileUrl, isImageHost, expandListing, extractItemLinks, resolveEmbeddedSource,
+module.exports = { setTelegramHandler, setXHandler,
+  download, pickTool, setThreadsHandler, isDirectFileUrl, isImageHost, expandListing, extractItemLinks, resolveEmbeddedSource,
   ytdlpArgs, gallerydlArgs, probeFormats, decodeLine, createLineReader, setBinDir, setThumbsDir, LOGIN_HINT,
   _setToolOverrides, // 테스트 전용
 };

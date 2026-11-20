@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('api', {
   openLogin: (startUrl) => ipcRenderer.invoke('open-login', startUrl),
   listGallery: () => ipcRenderer.invoke('list-gallery'),
   showItem: (p) => ipcRenderer.invoke('open-path', p),
+  openPostText: (p) => ipcRenderer.invoke('open-post-text', p),
   openSettings: () => ipcRenderer.invoke('open-settings'),
   openExtInstaller: () => ipcRenderer.invoke('open-ext-installer'),
   toolsStatus: () => ipcRenderer.invoke('tools-status'),

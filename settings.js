@@ -6,6 +6,8 @@ const $ = (id) => document.getElementById(id);
   $('outdir').textContent = s.outDir;
   $('ytHeight').value = String(s.ytHeight || 0);
   $('stories').checked = !!s.stories;
+  // 0은 전체 수집이므로, 값이 없을 때만 기본 50개를 쓴다.
+  $('threadsProfileLimit').value = String(s.threadsProfileLimit ?? 50);
   $('parallel').value = String(s.parallel || 1);
   $('rateLimit').value = s.rateLimit || '';
   $('autoRemove').checked = !!s.autoRemove;
@@ -18,6 +20,7 @@ const $ = (id) => document.getElementById(id);
 const save = (patch) => window.api.setSettings(patch);
 $('ytHeight').onchange = () => save({ ytHeight: Number($('ytHeight').value) });
 $('stories').onchange = () => save({ stories: $('stories').checked });
+$('threadsProfileLimit').onchange = () => save({ threadsProfileLimit: Number($('threadsProfileLimit').value) });
 $('parallel').onchange = () => save({ parallel: Number($('parallel').value) });
 $('rateLimit').onchange = () => save({ rateLimit: $('rateLimit').value });
 $('autoRemove').onchange = () => save({ autoRemove: $('autoRemove').checked });

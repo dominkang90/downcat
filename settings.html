@@ -71,6 +71,20 @@
   </div>
 
   <div class="group">
+    <h3>Threads (스레드)</h3>
+    <div class="field">
+      <label for="threadsProfileLimit">프로필 목록 게시물 수집 범위</label>
+      <select id="threadsProfileLimit" aria-describedby="threadsProfileHint">
+        <option value="20">목록 앞에서 20개</option>
+        <option value="50" selected>목록 앞에서 50개 (기본)</option>
+        <option value="100">목록 앞에서 100개</option>
+        <option value="0">전체 (공개 목록 끝까지)</option>
+      </select>
+    </div>
+    <p class="hint" id="threadsProfileHint">프로필 게시물 목록에서 수집한 게시물 개수 기준이며 파일 개수가 아닙니다. 고정글 등 사이트 표시 순서를 따르고, 텍스트만 있는 게시물도 본문 파일로 저장합니다. 전체는 공개 목록 끝까지 시도하며 완전 수집을 보장하는 것은 아닙니다.</p>
+  </div>
+
+  <div class="group">
     <h3>편의</h3>
     <div class="field">
       <label for="parallel">동시 다운로드 개수 (나머지는 대기)</label>
