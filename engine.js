@@ -140,7 +140,7 @@ function isDirectFileUrl(url) {
 
 function pickTool(url, mode) {
   if (threads.isThreadsUrl(url)) return 'threads';
-  if (x.isXUrl(url)) return 'x';
+  if (x.isXUrl(url)) { try { x.parsePostUrl(url); return 'x'; } catch {} } // 게시물만. 프로필·미디어 목록은 아래 gallery-dl로
   if (telegram.isTelegramUrl(url)) return 'telegram';
   if (mode === 'video') return 'ytdlp';
   if (mode === 'image') return 'gallerydl';

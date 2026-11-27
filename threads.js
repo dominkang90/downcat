@@ -116,7 +116,10 @@ async function downloadPost(post, options={}, onEvent=()=>{}) {
   const dir=path.join(options.outDir || path.join(__dirname,'downloads'),site,safePart(post.author));
   const files=[]; let bytes=0, thumb=null, currentTemp=null,documentFile=null,textCount=0,mediaCount=0;
   const resultFields=()=>({count:files.length,bytes,thumb,file:files.find(f=>f!==documentFile)||documentFile||null,files,documentFile,textCount,mediaCount,...(textCount?{summary:'미디어 '+mediaCount+'개 · 본문 '+textCount+'개'}:{})});
-  const timeout=AbortSignal.timeout(options.timeoutMs || 300000);
+  // 전체 시간이 아니라 데이터가 안 오는 시간을 잰다. 큰 영상도 받는 동안에는 끊지 않는다.
+  const idle=new AbortController(); let idleTimer;
+  const kick=()=>{clearTimeout(idleTimer);idleTimer=setTimeout(()=>idle.abort(),options.timeoutMs || 300000);};
+  kick(); const timeout=idle.signal;
   const signal=options.signal ? AbortSignal.any([options.signal,timeout]) : timeout;
   const fetcher=options.fetch || globalThis.fetch;
   try {
@@ -139,7 +142,7 @@ async function downloadPost(post, options={}, onEvent=()=>{}) {
       const total=Number(response.headers.get('content-length')) || 0; const started=Date.now();
       try {
         while(true) {
-          signal.throwIfAborted(); const chunk=await reader.read(); if(chunk.done) break;
+          signal.throwIfAborted(); const chunk=await reader.read(); if(chunk.done) break; kick();
           const buffer=Buffer.from(chunk.value); let offset=0;
           while(offset<buffer.length) {const r=await handle.write(buffer,offset,buffer.length-offset);offset+=r.bytesWritten;}
           written+=buffer.length;
@@ -148,7 +151,7 @@ async function downloadPost(post, options={}, onEvent=()=>{}) {
           if(options.rateLimit) {
             const m=String(options.rateLimit).match(/^(\d+(?:\.\d+)?)\s*([KMG])?$/i);
             const rate=m ? Number(m[1])*({K:1024,M:1048576,G:1073741824}[(m[2] || '').toUpperCase()] || 1) : 0;
-            if(rate>0) {const delay=written/rate*1000-(Date.now()-started);if(delay>0) await require('node:timers/promises').setTimeout(Math.min(delay,2147483647),undefined,{signal});}
+            if(rate>0) {const delay=written/rate*1000-(Date.now()-started);if(delay>0) {await require('node:timers/promises').setTimeout(Math.min(delay,2147483647),undefined,{signal});kick();}}
           }
         }
       } finally {await reader.cancel().catch(()=>{});await handle.close();}
@@ -173,6 +176,6 @@ async function downloadPost(post, options={}, onEvent=()=>{}) {
     if(currentTemp) await fsp.rm(currentTemp,{force:true}).catch(()=>{});
     const canceled=!!options.signal?.aborted;
     return failure(canceled ? '취소했어요.' : timeout.aborted ? '다운로드 시간이 초과됐어요. 다시 시도해주세요.' : err.message,{canceled,rateLimited:/요청이 많아|HTTP 429/.test(err.message || ''),...resultFields()});
-  }
+  } finally {clearTimeout(idleTimer);}
 }
 module.exports={isThreadsUrl,parsePostUrl,parseTargetUrl,safePart,isMediaUrl,extractPost,readDocument,filterMedia,downloadPost,failure};
