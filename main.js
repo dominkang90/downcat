@@ -243,6 +243,35 @@ ipcMain.handle('set-settings', (e, patch) => {
   return settings;
 });
 
+// 새 버전 알림: 하루 한 번 확인. 실패하면 조용히 넘어가고 다음에 켤 때 다시 본다.
+const appUpdate = require('./app-update');
+const newerVersion = () => { const u = settings.appUpdate; return u && appUpdate.isNewer(u.latest, app.getVersion()) ? u.latest : null; };
+ipcMain.handle('app-update', async () => {
+  if (Date.now() - ((settings.appUpdate || {}).checkedAt || 0) >= appUpdate.DAY) {
+    try { settings.appUpdate = { ...await appUpdate.check((u, o) => net.fetch(u, o)), checkedAt: Date.now() }; saveCfg(); }
+    catch (e) { log('새 버전 확인 실패', String(e.message || e)); }
+  }
+  const latest = newerVersion();
+  return latest ? { latest } : null;
+});
+ipcMain.handle('open-app-update', () => { const latest = newerVersion(); if (latest) return shell.openExternal(appUpdate.releaseUrl(latest)); });
+
+// 예전 받냥이 폴더(ZIP·소스 실행판)에서 설정·기록·로그인 쿠키 가져오기
+ipcMain.handle('import-old-data', async (e) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  const r = await dialog.showOpenDialog(win, { title: '예전 받냥이 폴더 고르기', properties: ['openDirectory'] });
+  if (r.canceled || !r.filePaths[0]) return { canceled: true };
+  const { response } = await dialog.showMessageBox(win, { type: 'question', buttons: ['가져오기', '취소'], cancelId: 1, defaultId: 0,
+    message: '예전 설정으로 바꾸고 작업 기록을 합칠까요?', detail: r.filePaths[0] + '\n\n지금 설정은 예전 값으로 바뀝니다. 받아 둔 파일과 예전 폴더는 그대로 둡니다.' });
+  if (response !== 0) return { canceled: true };
+  try {
+    const out = require('./import-old').importOldData(r.filePaths[0],
+      { settings, tasks: loadJson(TASKS, []), cookiesTxt: COOKIES_TXT, keys: [...Object.keys(DEFAULTS), 'bridgeToken'] });
+    Object.assign(settings, out.settings); saveCfg(); saveJson(TASKS, out.tasks);
+    return { ok: true, taskCount: out.taskCount, cookie: out.cookie };
+  } catch (err) { return { ok: false, error: String(err.message || err) }; }
+});
+
 // 작업 취소
 ipcMain.handle('cancel-job', (e, jobId) => {
   if (jobs[jobId]) { jobs[jobId].abort(); return true; }

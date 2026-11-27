@@ -389,6 +389,14 @@ function renderToolBanner(list) {
   el.hidden = false;
 }
 $('toolbanner').onclick = () => window.api.openSettings();
+// 새 버전 알림 띠: 누르면 받는 페이지가 열린다(자동 설치 없음)
+(window.api.appUpdate?.() ?? Promise.resolve(null)).then((u) => { // 알림은 덤: 연결이 없어도 화면은 그대로 뜬다
+  if (!u) return;
+  const el = $('updatebanner');
+  el.textContent = `🆕 새 버전 ${u.latest}이 나왔어요 — 눌러서 받기`;
+  el.onclick = () => window.api.openAppUpdate?.();
+  el.hidden = false;
+}).catch(() => {});
 window.api.toolsStatus().then(renderToolBanner);
 window.api.onToolsChanged(renderToolBanner);
 
