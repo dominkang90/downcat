@@ -79,3 +79,10 @@ test('속도 제한은 필요한 전체 대기 시간을 지킴',async()=>{
   const timers=require('node:timers/promises'),original=timers.setTimeout;let delay=0;timers.setTimeout=async ms=>{delay+=ms;};
   try{const r=await core().downloadPost({code:'RateLimit',author:'tester',media:[{kind:'image',url:cdn+'a.png'}]},{outDir:base,rateLimit:'1K',fetch:async()=>new Response(Buffer.alloc(65536),{headers:{'content-type':'image/png'}})});assert.equal(r.ok,true);assert.ok(delay>60000);}finally{timers.setTimeout=original;}
 });
+test('시간 제한은 전체가 아니라 무응답 기준: 느려도 오는 동안은 받고, 멈추면 끊는다',async()=>{
+  const slow=gap=>async()=>new Response(new ReadableStream({async pull(c){this.n=(this.n||0)+1;if(this.n>4)return c.close();await new Promise(r=>setTimeout(r,gap));c.enqueue(new Uint8Array(8));}}),{headers:{'content-type':'image/png'}});
+  const ok=await core().downloadPost({code:'Idle1',author:'tester',media:[{kind:'image',url:cdn+'a.png'}]},{outDir:base,timeoutMs:150,fetch:slow(60)});
+  assert.equal(ok.ok,true);assert.equal(ok.bytes>=32,true); // 총 240ms > 제한 150ms 이지만 성공
+  const stuck=await core().downloadPost({code:'Idle2',author:'tester',media:[{kind:'image',url:cdn+'a.png'}]},{outDir:base,timeoutMs:40,fetch:slow(300)});
+  assert.equal(stuck.ok,false);assert.match(stuck.error,/시간이 초과/);
+});
