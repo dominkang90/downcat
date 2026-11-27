@@ -1,4 +1,4 @@
-> 현재 수정본은 0.2.7-youtube.1입니다. YOUTUBE-CHANGES.md를 먼저 확인하세요. 아래는 이전 기능 기록입니다.
+> 현재 판은 0.2.8입니다. 0.2.7-youtube.1의 변경은 YOUTUBE-CHANGES.md에 있습니다. 아래는 이전 기능 기록입니다.
 
 > 현재 수정본은 0.2.6-telegram.1입니다. TELEGRAM-CHANGES.md를 먼저 확인하세요. 아래는 기존 기능/설치 기록입니다.
 
