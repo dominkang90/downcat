@@ -74,3 +74,8 @@ $('toolsupdate').onclick = async () => {
 
 // 브라우저 확장 설치 도우미(받냥이-확장설치.bat) 실행
 $('extinstall').onclick = () => window.api.openExtInstaller();
+$('importold').onclick = async () => {
+  const r = await window.api.importOldData();
+  if (r.canceled) return;
+  $('importresult').textContent = r.ok ? `가져왔어요: 작업 기록 ${r.taskCount}개${r.cookie ? ' · 로그인 쿠키' : ''}. 받냥이를 다시 켜면 모두 적용돼요.` : '가져오지 못했어요: ' + r.error;
+};
