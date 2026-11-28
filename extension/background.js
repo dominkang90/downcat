@@ -2,6 +2,8 @@
 // 받냥이 확장 서비스워커: 우클릭 "받냥이로 받기" → URL + 그 사이트 쿠키 + referer + UA를
 // 받냥이 로컬 브리지(127.0.0.1:47653)로 POST 한다. 토큰은 확장 옵션에서 저장한 값을 쓴다.
 
+importScripts('shared.js'); // browserDownloadable, siteFolder
+
 const BRIDGE = 'http://127.0.0.1:47653';
 const MENU_ID = 'downcat-send';
 
@@ -79,12 +81,16 @@ async function getToken() {
   try { const m = await chrome.storage.managed.get('bridgeToken'); return m.bridgeToken || ''; } catch { return ''; }
 }
 
-// 브라우저 단독으로 받을 수 있는 건가? 직링 http 파일만(스트림·blob·페이지는 yt-dlp 필요 → 앱).
-function browserDownloadable(url, mode) {
-  if (!/^https?:\/\//i.test(url)) return false;             // blob:/data: 불가
-  if (/\.(m3u8|mpd|m4s)(\?|$)/i.test(url)) return false;    // HLS/DASH는 조립 필요 → 앱
-  return mode === 'file' || mode === 'image';                // 직링 파일/이미지만
-}
+// 확장이 혼자 받는 파일은 다운로드 폴더의 "받냥이/사이트이름" 아래에 둔다. 파일 이름은 브라우저가 정한 것을 그대로 쓴다.
+// shortcut: 주소→폴더 표가 메모리에만 있어, 그 사이 서비스워커가 잠들면 그 파일은 기본 다운로드 폴더로 간다. 자주 보이면 chrome.storage.session으로 옮긴다.
+const standaloneFolders = new Map(); // 받을 주소 -> 폴더
+chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
+  if (item.byExtensionId !== chrome.runtime.id) return; // 사용자가 직접 받는 파일은 건드리지 않는다
+  const folder = standaloneFolders.get(item.url);
+  if (!folder) return;
+  standaloneFolders.delete(item.url);
+  suggest({ filename: folder + '/' + item.filename, conflictAction: 'uniquify' });
+});
 
 // 영상 포맷 목록을 받냥이 앱(yt-dlp)에 물어본다. 앱이 있어야 함(확장 혼자선 못 캠).
 async function probeViaBridge(url, tab) {
@@ -132,10 +138,12 @@ async function sendToDowncat(url, mode, tab, format) {
   // 2) 앱이 없으면: 직링 파일은 브라우저 내장 다운로더로 단독 처리(쿠키는 브라우저가 자동 첨부)
   if (browserDownloadable(url, mode)) {
     try {
+      standaloneFolders.set(url, siteFolder(tab && tab.url, url));
       await chrome.downloads.download({ url });
       flash('브라우저로 받는 중 ⬇', '✓');
       return { ok: true, via: 'browser' };
     } catch (e) {
+      standaloneFolders.delete(url);
       flash('다운로드 실패');
       return { ok: false, error: '다운로드 실패: ' + (e && e.message || e) };
     }

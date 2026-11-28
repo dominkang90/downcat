@@ -145,6 +145,7 @@ app.whenReady().then(() => {
   // 로컬 브리지: 확장이 던진 URL을 clipboard-url과 같은 방식으로 창에 넣는다.
   bridgeServer = require('./bridge').createBridgeServer({
     token: settings.bridgeToken,
+    extVersion: (() => { try { return require('./extension/manifest.json').version; } catch { return undefined; } })(), // 확장이 낡았는지 팝업이 알 수 있게
     onJob: (job) => {
       if (!mainWin || mainWin.isDestroyed()) return false; // 창 없으면 503
       mainWin.webContents.send('bridge-job', job);
