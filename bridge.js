@@ -77,7 +77,7 @@ const MAX_BODY = 64 * 1024; // 본문 상한 64KB
 // onProbe(job) -> Promise<formats>: 영상 포맷 목록을 캐서 돌려준다(선택).
 // onPair({extensionId, origin}) -> Promise<boolean>: [연결하기] 요청을 사용자에게 묻는다(예=true).
 // port/host는 테스트용(기본 127.0.0.1:47653). port 0이면 빈 포트를 자동으로 고른다.
-function createBridgeServer({ token, onJob, onProbe, onPair, port = PORT, host = HOST }) {
+function createBridgeServer({ token, onJob, onProbe, onPair, extVersion, port = PORT, host = HOST }) {
   let pairPending = false;  // 확인창은 한 번에 하나만
   let pairCooldownUntil = 0; // 거절 직후 잠깐은 다시 못 묻게(확인창 도배 방지)
   const server = http.createServer((req, res) => {
@@ -96,7 +96,7 @@ function createBridgeServer({ token, onJob, onProbe, onPair, port = PORT, host =
     const listenPort = server.address() && server.address().port;
     if (!isAllowedHost(req.headers.host, listenPort)) { send(403, { ok: false, error: 'host 거부' }); return; }
     if (req.method === 'OPTIONS') { setCors(); res.writeHead(204); res.end(); return; }
-    if (req.method === 'GET' && req.url === '/ping') { send(200, { ok: true, app: 'downcat' }); return; }
+    if (req.method === 'GET' && req.url === '/ping') { send(200, { ok: true, app: 'downcat', ...(extVersion ? { extVersion } : {}) }); return; }
     // POST /pair: 확장의 [연결하기]. 토큰 없이 오지만, 받냥이 창에서 사용자가 [예]를 눌러야만 토큰을 준다.
     if (req.method === 'POST' && req.url === '/pair') {
       const extensionId = extensionIdFromOrigin(origin); // 웹페이지는 Origin을 chrome-extension://으로 못 바꾼다

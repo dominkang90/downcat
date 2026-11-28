@@ -3,6 +3,7 @@
 const BRIDGE = 'http://127.0.0.1:47653';
 const $ = (id) => document.getElementById(id);
 let activeTab = null;
+let appOn = null; // 받냥이 앱이 켜져 있나(null=아직 모름). 꺼져 있으면 확장이 혼자 받는다.
 
 // 종류 → 표시(이모지+이름) + 전송 모드. 스트림만 yt-dlp(video), 나머지 직링은 aria2(file).
 const KIND = {
@@ -20,9 +21,35 @@ function modeFor(item) {
   try {
     const res = await fetch(`${BRIDGE}/ping`);
     const data = await res.json().catch(() => ({}));
-    setConn(res.ok && data.app === 'downcat' ? '받냥이 연결됨 ✅' : '응답 이상', res.ok);
-  } catch { setConn('받냥이 꺼짐 — 먼저 실행', false); }
+    appOn = res.ok && data.app === 'downcat';
+    setConn(appOn ? '받냥이 연결됨 ✅' : '응답 이상 — 브라우저로 받아요', appOn);
+    // 앱에 들어 있는 확장이 더 새것이면 알린다(개발자 모드 확장은 스스로 업데이트되지 않는다).
+    const mine = chrome.runtime.getManifest().version;
+    if (appOn && data.extVersion && versionLess(mine, data.extVersion)) {
+      $('extold').textContent = `확장이 예전 버전이에요 (${mine} → ${data.extVersion}). 확장 관리 화면에서 다시 불러와 주세요.`;
+      $('extold').hidden = false;
+    }
+  } catch { appOn = false; setConn('받냥이 앱 꺼짐 — 브라우저로 받아요', false); }
+  applyMode();
 })();
+
+// 앱이 꺼져 있으면: 버튼 글자를 바꾸고, 확장 혼자 못 받는 항목은 흐리게 하고 고르지 못하게 한다.
+function applyMode() {
+  const off = appOn === false;
+  $('send').textContent = off ? '선택한 것 브라우저로 받기' : '선택한 것 받냥이로 보내기';
+  $('page').disabled = off;
+  $('page').title = off ? '페이지 통째 받기는 받냥이 앱이 필요해요' : '';
+  $('offhint').hidden = !off;
+  for (const row of document.querySelectorAll('#list .item')) {
+    const can = !off || browserDownloadable(row._item.url, modeFor(row._item));
+    const box = row.querySelector('input');
+    row.classList.toggle('off', !can);
+    box.disabled = !can;
+    if (!can) box.checked = false;
+    row.querySelector('.n').textContent = can ? '' : '받냥이 앱이 필요해요';
+  }
+  updateSendState();
+}
 
 $('opts').addEventListener('click', () => chrome.runtime.openOptionsPage());
 
@@ -90,17 +117,17 @@ function render(items) {
     const k = KIND[it.kind] || { icon: '📄', name: '파일' };
     const row = document.createElement('label');
     row.className = 'item';
-    row.innerHTML = `<input type="checkbox" checked><span class="k">${k.icon}</span><span class="u"></span>`;
+    row.innerHTML = `<input type="checkbox" checked><span class="k">${k.icon}</span><span class="u"></span><span class="n"></span>`;
     row.querySelector('.u').textContent = it.url;
     row.querySelector('.u').title = it.url;
     row._item = it;
     list.appendChild(row);
   }
-  updateSendState();
+  applyMode();
   list.addEventListener('change', updateSendState);
 }
 
-function setAll(on) { document.querySelectorAll('#list input[type=checkbox]').forEach((c) => (c.checked = on)); updateSendState(); }
+function setAll(on) { document.querySelectorAll('#list input[type=checkbox]:not(:disabled)').forEach((c) => (c.checked = on)); updateSendState(); }
 function updateSendState() { $('send').disabled = ![...document.querySelectorAll('#list input:checked')].length; }
 
 async function sendChecked() {
