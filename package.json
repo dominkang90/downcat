@@ -8,8 +8,8 @@
     "dl": "node engine.js",
     "test": "node --test test_aria2.js test_bridge.js test_engine.js test/engine-cases.test.js test/encoding-real.test.js test/tools.test.js test/bridge-pair.test.js test/threads.test.js test/threads-browser.test.js test/runtime-guard.test.js test/profile.test.js test/profile-ui.test.js test/profile-browser.test.js test/share.test.js test/content.test.js test/content-ui.test.js test/x.test.js test/x-browser.test.js test/telegram.test.js test/telegram-browser.test.js test/youtube-engine.test.js test/youtube-tools.test.js test/update-import.test.js test/extension-shared.test.js",
     "pack-crx": "node scripts/pack-crx.js",
-    "dist": "node scripts/pack-crx.js && electron-builder --win nsis",
-    "dist:app": "electron-builder --win nsis --x64",
+    "dist": "node scripts/pack-crx.js && electron-builder --win nsis --publish never",
+    "dist:app": "electron-builder --win nsis --x64 --publish never",
     "test:threads": "node --test test/threads.test.js test/threads-browser.test.js test/runtime-guard.test.js test/profile.test.js test/profile-ui.test.js test/profile-browser.test.js test/share.test.js test/content.test.js test/content-ui.test.js",
     "test:x": "node --test test/x.test.js test/x-browser.test.js",
     "test:telegram": "node --test test/telegram.test.js test/telegram-browser.test.js",
@@ -25,6 +25,13 @@
     "productName": "받냥이",
     "asar": false,
     "afterPack": "build/after-pack.js",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "dominkang90",
+        "repo": "downcat"
+      }
+    ],
     "files": [
       "**/*",
       "!cookies/**",
@@ -58,9 +65,14 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "shortcutName": "받냥이",
+      "artifactName": "DownCat-Setup-v${version}.${ext}",
+      "include": "build/installer.nsh",
       "installerIcon": "build/icon.ico",
       "uninstallerIcon": "build/icon.ico",
       "installerHeaderIcon": "build/icon.ico"
     }
+  },
+  "dependencies": {
+    "electron-updater": "6.8.11"
   }
 }

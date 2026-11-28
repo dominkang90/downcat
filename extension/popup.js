@@ -23,10 +23,11 @@ function modeFor(item) {
     const data = await res.json().catch(() => ({}));
     appOn = res.ok && data.app === 'downcat';
     setConn(appOn ? '받냥이 연결됨 ✅' : '응답 이상 — 브라우저로 받아요', appOn);
-    // 앱에 들어 있는 확장이 더 새것이면 알린다(개발자 모드 확장은 스스로 업데이트되지 않는다).
-    const mine = chrome.runtime.getManifest().version;
+    // 앱에 들어 있는 확장이 더 새것이면 알린다. 보통은 배경 스크립트가 스스로 새로 고치고,
+    // 여기까지 낡은 채로 왔다면 다른 폴더에서 불러온 확장이라 직접 다시 불러와야 한다.
+    const mine = (await (await fetch(chrome.runtime.getURL('manifest.json'), { cache: 'no-store' })).json()).version; // 디스크에 있는 파일의 버전
     if (appOn && data.extVersion && versionLess(mine, data.extVersion)) {
-      $('extold').textContent = `확장이 예전 버전이에요 (${mine} → ${data.extVersion}). 확장 관리 화면에서 다시 불러와 주세요.`;
+      $('extold').textContent = `확장이 예전 버전이에요 (${mine} → ${data.extVersion}). 받냥이 설정의 [확장 설치 도우미]로 다시 불러와 주세요.`;
       $('extold').hidden = false;
     }
   } catch { appOn = false; setConn('받냥이 앱 꺼짐 — 브라우저로 받아요', false); }

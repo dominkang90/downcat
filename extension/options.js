@@ -58,4 +58,14 @@ $('test').addEventListener('click', async () => {
   }
 });
 
+// 아직 연결 전이고 받냥이가 켜져 있으면 [연결하기]를 대신 눌러 준다. 받냥이 창에서 [예]만 누르면 된다.
+(async () => {
+  try {
+    const { token } = await chrome.storage.local.get('token');
+    const managed = await chrome.storage.managed.get('bridgeToken').catch(() => ({}));
+    if (token || (managed && managed.bridgeToken)) return;
+    if ((await (await fetch(`${BRIDGE}/ping`)).json()).app === 'downcat') $('pair').click();
+  } catch { /* 앱이 꺼져 있으면 사용자가 직접 누른다 */ }
+})();
+
 function setStatus(msg, color) { const s = $('status'); s.textContent = msg; s.style.color = color; }

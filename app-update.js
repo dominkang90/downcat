@@ -1,6 +1,6 @@
 'use strict';
 // 새 버전 확인: GitHub의 "최신" 릴리스(시험판·초안은 GitHub이 빼 준다)와 지금 버전을 비교한다.
-// 알림만 한다. 설치 파일을 대신 받아 실행하지 않는다.
+// 여기서는 새 버전이 있는지만 본다. 받아서 설치하는 일은 main.js의 installUpdate(electron-updater)가 한다.
 const REPO = 'dominkang90/downcat';
 const DAY = 24 * 60 * 60 * 1000;
 
