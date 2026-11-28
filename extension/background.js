@@ -4,6 +4,21 @@
 
 importScripts('shared.js'); // browserDownloadable, siteFolder
 
+// 받냥이 앱이 업데이트되면 설치 폴더의 확장 파일도 새것으로 바뀐다. 디스크의 버전이 지난번과 달라졌으면 스스로 새로 고친다.
+// 새로 고치면 스크립트·화면은 새 파일로 바뀌고 저장해 둔 연결(토큰)은 남는다(시험용 크로미움에서 확인).
+// shortcut: manifest.json의 변화(권한·버전 표시)는 이 방법으로 안 바뀌고 브라우저를 다시 켜야 적용된다. 권한을 바꾸는 판에서는 안내가 필요하다.
+const diskVersion = async () => (await (await fetch(chrome.runtime.getURL('manifest.json'), { cache: 'no-store' })).json()).version;
+async function selfUpdate() {
+  try {
+    const disk = await diskVersion();
+    const { codeVersion } = await chrome.storage.local.get('codeVersion');
+    if (codeVersion === disk) return;
+    await chrome.storage.local.set({ codeVersion: disk }); // 먼저 적어 둬서 되풀이하지 않는다
+    if (codeVersion) chrome.runtime.reload();              // 처음 불러왔을 때는 적기만 한다
+  } catch { /* 다음에 다시 본다 */ }
+}
+selfUpdate();
+
 const BRIDGE = 'http://127.0.0.1:47653';
 const MENU_ID = 'downcat-send';
 

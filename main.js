@@ -244,7 +244,8 @@ ipcMain.handle('set-settings', (e, patch) => {
   return settings;
 });
 
-// 새 버전 알림: 하루 한 번 확인. 실패하면 조용히 넘어가고 다음에 켤 때 다시 본다.
+// 새 버전: 하루 한 번 확인해 팝업으로 알리고, [지금 업데이트]를 누르면 받아서 설치한 뒤 다시 켠다.
+// 확인이 실패하면 조용히 넘어가고 다음에 켤 때 다시 본다.
 const appUpdate = require('./app-update');
 const newerVersion = () => { const u = settings.appUpdate; return u && appUpdate.isNewer(u.latest, app.getVersion()) ? u.latest : null; };
 ipcMain.handle('app-update', async () => {
@@ -253,9 +254,38 @@ ipcMain.handle('app-update', async () => {
     catch (e) { log('새 버전 확인 실패', String(e.message || e)); }
   }
   const latest = newerVersion();
+  if (latest && !updatePrompted && mainWin && !mainWin.isDestroyed()) { // 켤 때마다 한 번만 묻는다. [나중에]를 고르면 알림 띠가 남는다.
+    updatePrompted = true;
+    dialog.showMessageBox(mainWin, {
+      type: 'info', title: '받냥이 업데이트', message: `새 버전 ${latest}이 나왔어요`,
+      detail: '지금 업데이트하면 새 버전을 받아 설치하고 받냥이를 다시 켭니다.\n받는 중인 파일이 있으면 끝난 뒤에 눌러 주세요.',
+      buttons: ['지금 업데이트', '나중에'], defaultId: 0, cancelId: 1,
+    }).then((r) => { if (r.response === 0) installUpdate(latest); });
+  }
   return latest ? { latest } : null;
 });
-ipcMain.handle('open-app-update', () => { const latest = newerVersion(); if (latest) return shell.openExternal(appUpdate.releaseUrl(latest)); });
+let updatePrompted = false, updating = false;
+async function installUpdate(latest) {
+  if (updating) return;
+  updating = true;
+  try {
+    const { autoUpdater } = require('electron-updater'); // 설치판에서만 동작한다(소스 실행이면 null을 돌려준다)
+    autoUpdater.autoDownload = false;
+    autoUpdater.logger = { info: (m) => log('업데이트', m), warn: (m) => log('업데이트', m), error: (m) => log('업데이트 오류', m), debug() {} };
+    if (process.env.DOWNCAT_UPDATE_FEED) autoUpdater.setFeedURL({ provider: 'generic', url: process.env.DOWNCAT_UPDATE_FEED }); // 배포 전 시험용
+    const found = await autoUpdater.checkForUpdates();
+    if (!found || !appUpdate.isNewer(found.updateInfo.version, app.getVersion())) throw new Error('업데이트 파일을 찾지 못했어요');
+    autoUpdater.on('download-progress', (p) => { if (mainWin && !mainWin.isDestroyed()) mainWin.setProgressBar(p.percent / 100); });
+    await autoUpdater.downloadUpdate(); // 받은 파일은 latest.yml의 sha512와 맞는지 확인된다
+    autoUpdater.quitAndInstall(true, true); // 조용히 설치하고 다시 켠다
+  } catch (e) {
+    updating = false;
+    if (mainWin && !mainWin.isDestroyed()) mainWin.setProgressBar(-1);
+    log('한 번에 업데이트 실패 - 받는 페이지를 연다', String((e && e.message) || e));
+    shell.openExternal(appUpdate.releaseUrl(latest));
+  }
+}
+ipcMain.handle('open-app-update', () => { const latest = newerVersion(); if (latest) installUpdate(latest); });
 
 // 예전 받냥이 폴더(ZIP·소스 실행판)에서 설정·기록·로그인 쿠키 가져오기
 ipcMain.handle('import-old-data', async (e) => {
